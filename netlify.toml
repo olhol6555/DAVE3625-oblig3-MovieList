@@ -1,0 +1,11 @@
+[build]
+  command = "node build.cjs"
+  publish = "dist"
+  functions = "netlify/functions"
+[dev]
+  publish = "dist"
+  framework = "#static"
+  port = 8888
+[functions]
+  node_bundler = "esbuild"
+
