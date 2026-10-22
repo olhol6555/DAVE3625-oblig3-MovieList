@@ -288,3 +288,108 @@ test('export UI is removed and status labels switch without replacing buttons', 
   assert.equal(watched.attributes['aria-pressed'], 'false');
   assert.equal(app.run('collection.watched.length + collection.watchlist.length'), 0);
 });
+
+test('Top 4 UI adds, replaces, reorders, opens details and persists without changing ratings', async () => {
+  const saved = { 'movielist-v2': JSON.stringify({ watched: Array.from({length:5}, (_, i) => ({ id:i+1, title:`Film ${i+1}`, poster_path:'/poster.jpg', year:'2020', rating:4, genres:['Drama'] })), watchlist:[] }) };
+  const app = boot(async url => response(url.includes('action=genres') ? { genres:[] } : { ...tmdbMovie, id:1, genres:[] }), 'watched.html', saved);
+  const cards = app.dom['movie-container'].children;
+  const heart = card => card.children[1].children[2].children[2];
+  assert.equal(app.dom['favorites-container'].children.length, 4);
+  assert.equal(app.run('Store.favorites(collection).length'), 0);
+  const button = heart(cards[0]); button.listeners.click();
+  assert.equal(button.attributes['aria-pressed'], 'true');
+  assert.equal(app.dom['movie-container'].children[0], cards[0]);
+  for (const card of cards.slice(1,4)) heart(card).listeners.click();
+  heart(cards[4]).listeners.click();
+  assert.equal(app.dom['favorite-dialog'].open, true);
+  app.dom['favorite-replacements'].children[0].listeners.click();
+  assert.equal(app.dom['favorite-dialog'].open, false);
+  assert.equal(app.run('Store.favorites(collection)[0].tmdbId'), 5);
+  const second = app.dom['favorites-container'].children[1];
+  second.earlier.listeners.click();
+  assert.equal(app.dom['favorites-container'].children[0], second);
+  assert.equal(app.events.scroll.top, 500);
+  assert.equal(app.run('Store.favorites(collection)[0].tmdbId'), 2);
+  const reloaded = boot(async () => response({genres:[]}), 'watched.html', saved);
+  assert.equal(reloaded.run('Store.favorites(collection)[0].tmdbId'), 2);
+  assert.equal(reloaded.run('collection.watched[0].rating'), 4);
+  app.dom['favorites-container'].children[0].children[0].listeners.click();
+  assert.equal(app.dom['movie-dialog'].open, true);
+  assert.equal(app.run('activeMovie.tmdbId'), 2);
+  app.run("changeStatus(Store.favorites(collection)[0], 'watchlist')");
+  assert.equal(app.run('Store.favorites(collection).length'), 3);
+  reloaded.events.storage({ key:'movielist-v2' });
+  assert.equal(reloaded.run('Store.favorites(collection).length'), 3);
+  await tick();
+});
+
+test('random picker displays saved posters/details, avoids repeats and marks picked films Watched', async () => {
+  const saved = { 'movielist-v2': JSON.stringify({ watched:[], watchlist:[
+    { id:1, title:'First pick', year:'2020', poster_path:'/first.jpg', overview:'First synopsis', genres:['Drama'] },
+    { id:2, title:'Second pick', year:'2021', poster_path:'/second.jpg', overview:'Second synopsis', genres:['Comedy'] }
+  ] }) };
+  const calls = [];
+  const app = boot(async url => { calls.push(url); return response({genres:[]}); }, 'watchlist.html', saved);
+  await tick();
+  app.dom['movie-search'].value = 'absent'; app.dom['movie-search'].listeners.input();
+  app.dom['pick-movie'].listeners.click();
+  const first = app.run('pickedMovie.tmdbId');
+  assert.ok([1,2].includes(first));
+  assert.ok(app.dom['picker-poster'].children[0].children[1].src.includes('image.tmdb.org'));
+  assert.ok(app.dom['picker-overview'].textContent.includes('synopsis'));
+  app.dom['pick-another'].listeners.click();
+  assert.notEqual(app.run('pickedMovie.tmdbId'), first);
+  assert.equal(app.dom['picker-watched'].disabled, false);
+  assert.equal(calls.length, 1); // Only the existing genre request, no picker API.
+  app.dom['picker-watched'].listeners.click();
+  assert.equal(JSON.parse(saved['movielist-v2']).watched.length, 1);
+  assert.equal(JSON.parse(saved['movielist-v2']).watchlist.length, 1);
+  assert.equal(app.dom['picker-watched'].disabled, true);
+  app.dom['pick-another'].listeners.click();
+  assert.equal(app.run('pickedMovie.tmdbId'), first);
+  app.dom['picker-watched'].listeners.click();
+  assert.equal(app.run('collection.watchlist.length'), 0);
+  assert.match(app.dom['picker-message'].textContent, /Add movies on Discover/);
+  app.dom['pick-movie'].listeners.click();
+  assert.equal(app.run('pickedMovie'), null);
+  assert.equal(app.dom['pick-another'].disabled, true);
+  assert.equal(app.dom['picker-details'].disabled, true);
+});
+
+test('all pages initialize without transfer controls and preserve existing stored collections', async () => {
+  const original = JSON.stringify({
+    watched: [{id:1,tmdbId:1,title:'Existing',year:'2020',poster_path:'/poster.jpg',overview:'Synopsis',genres:['Drama'],rating:4.5}],
+    watchlist: [{id:2,tmdbId:2,title:'Later',year:'2021',genres:['Comedy'],rating:0}],
+    favorites: ['tmdb:1']
+  });
+  const saved = { 'movielist-v2': original, 'movielist-v1': 'older backup' };
+  for (const page of ['index.html','watched.html','watchlist.html']) {
+    const app = boot(async url => response(url.includes('action=genres') ? {genres:[]} : {results:[],total_pages:0}), page, saved);
+    await tick();
+    assert.equal(app.run('collection.watched[0].rating'), 4.5);
+    assert.equal(app.run('collection.watchlist[0].title'), 'Later');
+    assert.equal(app.run('Store.favorites(collection)[0].title'), 'Existing');
+    app.events.pageshow({persisted:true});
+    assert.equal(saved['movielist-v2'], original);
+    assert.equal(saved['movielist-v1'], 'older backup');
+    assert.equal(app.dom['import-collection'], undefined);
+    assert.equal(app.dom['export-collection'], undefined);
+  }
+});
+
+test('picker details reuse existing dialog and synchronize status changes from another tab', async () => {
+  const saved = { 'movielist-v2': JSON.stringify({ watched:[],watchlist:[{id:42,title:'A real catalog film',year:'2024',poster_path:'/poster.jpg',genres:[]}] }) };
+  const app = boot(async url => response(url.includes('action=details') ? { ...tmdbMovie, genres:[{id:18,name:'Drama'}] } : {genres:[]}), 'watchlist.html', saved);
+  app.dom['pick-movie'].listeners.click();
+  app.dom['picker-details'].listeners.click();
+  await tick();
+  assert.equal(app.dom['movie-dialog'].open, true);
+  assert.equal(app.dom['picker-overview'].textContent, 'A synopsis.');
+  const other = boot(async () => response({genres:[]}), 'watchlist.html', saved);
+  other.run("changeStatus(collection.watchlist[0], 'watched')");
+  app.events.storage({key:'movielist-v2'});
+  assert.equal(app.run('pickedMovie'), null);
+  assert.equal(app.dom['picker-watched'].disabled, true);
+  assert.equal(app.dom['movie-dialog'].open, true);
+  assert.equal(app.run('collection.watched[0].rating'), 0);
+});

@@ -4,7 +4,7 @@ const Store = require('../collection.js');
 const storage = data => ({ getItem: key => data[key] ?? null });
 const movie = { id: 42, tmdbId: 42, title: 'A film', year: '2024', poster_path: '/poster.jpg', overview: 'Synopsis', genres: ['Drama'], rating: 0 };
 test('fresh collection has no watched films or personal ratings', () => {
-  assert.deepEqual(Store.load(storage({})), { watched: [], watchlist: [] });
+  assert.deepEqual(Store.load(storage({})), { watched: [], watchlist: [], favorites: [] });
 });
 test('status changes use TMDB IDs, move without duplicates, and clear ratings outside watched', () => {
   const data = { watched: [], watchlist: [] };
@@ -26,7 +26,7 @@ test('status changes use TMDB IDs, move without duplicates, and clear ratings ou
 test('saved metadata and optional half-star rating survive reload', () => {
   const data = { watched: [{ ...movie, rating: 0.5 }], watchlist: [] };
   const reloaded = Store.load(storage({ [Store.KEY]: JSON.stringify(data) }));
-  assert.deepEqual(reloaded, data);
+  assert.deepEqual(reloaded, { ...data, favorites: [] });
   for (const invalid of [0.1, 5.5, -1, '4', NaN]) assert.equal(Store.rating(invalid), 0);
 });
 test('migrates old data without inventing IDs, changing ratings or mutating original storage', () => {
@@ -52,4 +52,67 @@ test('normalization removes duplicate TMDB IDs and disallows watchlist ratings',
   assert.equal(data.watched.length, 1);
   assert.equal(data.watchlist.length, 1);
   assert.equal(data.watchlist[0].rating, 0);
+});
+
+const film = id => ({ ...movie, id, tmdbId: id, title: `Film ${id}`, rating: 4 });
+test('favorites are watched-only, unique, limited to four, removable and replaceable', () => {
+  const data = Store.normalize({ watched: [1,2,3,4,5].map(film), watchlist: [film(6)] });
+  assert.equal(Store.toggleFavorite(data, film(6)), false);
+  for (const id of [1,2,3,4]) assert.equal(Store.toggleFavorite(data, film(id)), true);
+  assert.equal(Store.toggleFavorite(data, film(5)), false);
+  assert.deepEqual(Store.favorites(data).map(movie => movie.tmdbId), [1,2,3,4]);
+  assert.equal(Store.replaceFavorite(data, film(2), film(5)), true);
+  assert.deepEqual(Store.favorites(data).map(movie => movie.tmdbId), [1,5,3,4]);
+  assert.equal(Store.replaceFavorite(data, film(1), film(5)), false);
+  assert.equal(Store.toggleFavorite(data, film(5)), true);
+  assert.equal(Store.isFavorite(data, film(5)), false);
+  assert.deepEqual(data.watched.map(movie => movie.rating), [4,4,4,4,4]);
+});
+
+test('favorites reorder, persist, and disappear automatically when leaving Watched', () => {
+  const data = Store.normalize({ watched: [1,2,3].map(film), watchlist: [] });
+  for (const item of data.watched) Store.toggleFavorite(data, item);
+  assert.equal(Store.moveFavorite(data, film(1), -1), false);
+  assert.equal(Store.moveFavorite(data, film(2), -1), true);
+  assert.deepEqual(Store.favorites(data).map(movie => movie.tmdbId), [2,1,3]);
+  const loaded = Store.load(storage({ [Store.KEY]: JSON.stringify(data) }));
+  assert.deepEqual(loaded, data);
+  Store.setStatus(loaded, film(2), 'watchlist');
+  Store.setStatus(loaded, film(3), 'neutral');
+  assert.deepEqual(Store.favorites(loaded).map(movie => movie.tmdbId), [1]);
+  Store.setStatus(loaded, film(2), 'watched');
+  assert.equal(Store.isFavorite(loaded, film(2)), false);
+});
+
+test('favorite normalization drops invalid references and preserves legacy favorites through linking', () => {
+  const raw = { watched: [1,2,3,4,5].map(film), watchlist: [film(6)], favorites: ['tmdb:6','bad','tmdb:2','tmdb:2','tmdb:1','tmdb:3','tmdb:4','tmdb:5'] };
+  const data = Store.normalize(raw);
+  assert.deepEqual(data.favorites, ['tmdb:2','tmdb:1','tmdb:3','tmdb:4']);
+  const legacy = Store.normalize({ watched: [{ title: 'Legacy', year: 1980, rating: 4.5 }], watchlist: [film(1)] });
+  Store.toggleFavorite(legacy, legacy.watched[0]);
+  const loaded = Store.load(storage({ [Store.KEY]: JSON.stringify(legacy) }));
+  Store.link(loaded, loaded.watched[0], film(1));
+  assert.equal(Store.favorites(loaded)[0].tmdbId, 1);
+  assert.equal(Store.favorites(loaded)[0].rating, 4.5);
+});
+
+test('random picker handles empty/single lists, uses the full watchlist and avoids consecutive repeats', () => {
+  assert.equal(Store.pickRandom({ watchlist: [] }), null);
+  const data = { watched: [film(9)], watchlist: [film(1),film(2),film(3)] };
+  assert.equal(Store.pickRandom(data, null, () => 0).tmdbId, 1);
+  assert.equal(Store.pickRandom(data, null, () => 0.999).tmdbId, 3);
+  assert.equal(Store.pickRandom(data, film(2), () => 0).tmdbId, 1);
+  assert.equal(Store.pickRandom(data, film(2), () => 0.999).tmdbId, 3);
+  assert.equal(Store.pickRandom({ watchlist: [film(1)] }, film(1)).tmdbId, 1);
+  let previous = null;
+  for (let i = 0; i < 100; i++) {
+    const picked = Store.pickRandom(data, previous);
+    assert.notEqual(picked.tmdbId, previous?.tmdbId);
+    previous = picked;
+  }
+  const picked = Store.pickRandom(data, null, () => 0);
+  Store.setStatus(data, picked, 'watched');
+  assert.equal(data.watchlist.some(movie => movie.tmdbId === picked.tmdbId), false);
+  assert.equal(Store.status(data, picked), 'watched');
+  assert.equal(Store.find(data, picked).rating, 0);
 });

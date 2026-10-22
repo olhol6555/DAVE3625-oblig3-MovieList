@@ -31,7 +31,8 @@ function persist(message, interaction = false) {
   }
   render();
   if (interaction) {
-    if (focused && !focused.isConnected) {
+    if (focused?.isConnected && !focused.disabled && document.activeElement !== focused) focused.focus({ preventScroll: true });
+    if (focused && (!focused.isConnected || focused.disabled)) {
       const target = $('movie-dialog').open ? $('close-dialog') : $('movie-search');
       target?.focus({ preventScroll: true });
     }
@@ -51,6 +52,7 @@ function matchesGenre(movie, id) {
 let catalog = [], mode = 'popular', searchQuery = '', page = 0, totalPages = 0;
 let requestId = 0, controller, busy = false, failed = false;
 let activeMovie = null, detailRequest = 0, linkingMovie = null;
+let pickedMovie = null, pickerStarted = false, pendingFavorite = null;
 const detailCache = new Map();
 async function api(action, parameters = {}, signal) {
   const response = await fetch(`/.netlify/functions/tmdb?${new URLSearchParams({ action, ...parameters })}`, { signal });
@@ -151,6 +153,8 @@ function controls(movie) {
   stars.addEventListener('pointerleave', () => preview(current()));
   rating.append(caption, stars);
   box.append(actions, rating);
+  const favorite = button('♡ Add to Favorites', () => toggleFavorite(movie), 'favorite-button');
+  box.append(favorite);
   box.updateControls = () => {
     const state = Store.status(collection, movie), value = current();
     statusButtons.forEach((control, i) => {
@@ -159,6 +163,12 @@ function controls(movie) {
       control.setAttribute('aria-pressed', String(state === next));
       control.setAttribute('aria-label', `${movie.title}: ${state === next ? 'remove from' : 'add to'} ${next}`);
     });
+    favorite.style.visibility = state === 'watched' ? 'visible' : 'hidden';
+    favorite.disabled = state !== 'watched';
+    const selected = Store.isFavorite(collection, movie);
+    favorite.textContent = selected ? '♥ In Favorites' : '♡ Add to Favorites';
+    favorite.setAttribute('aria-pressed', String(selected));
+    favorite.setAttribute('aria-label', `${selected ? 'Remove' : 'Add'} ${movie.title} ${selected ? 'from' : 'to'} favorites`);
     // Reserve the same space in every card so status changes never resize rows.
     rating.style.visibility = state === 'watched' ? 'visible' : 'hidden';
     rating.inert = state !== 'watched';
@@ -236,6 +246,8 @@ function render() {
   const rated = collection.watched.filter(movie => movie.rating);
   $('average-rating').textContent = rated.length ? (rated.reduce((sum, movie) => sum + movie.rating, 0) / rated.length).toFixed(1) : '—';
   renderCatalog();
+  renderFavorites();
+  renderPicker();
   if (activeMovie) updateControlsWithin($('detail-content'));
 }
 async function loadCatalog(reset = false) {
@@ -348,6 +360,105 @@ function openDetails(movie) {
   $('movie-dialog').showModal();
   if (movie.tmdbId) fetchDetails(movie);
 }
+function toggleFavorite(movie) {
+  if (Store.status(collection, movie) !== 'watched') return;
+  if (Store.toggleFavorite(collection, movie)) {
+    persist(`${movie.title}: ${Store.isFavorite(collection, movie) ? 'added to' : 'removed from'} your Top 4.`, true);
+    return;
+  }
+  pendingFavorite = movie;
+  $('favorite-replace-message').textContent = `Choose a film to replace with ${movie.title}. Your existing ratings will be kept.`;
+  $('favorite-replacements').replaceChildren(...Store.favorites(collection).map(previous => {
+    const choice = button(`Replace ${previous.title}`, () => {
+      const added = Store.replaceFavorite(collection, previous, pendingFavorite);
+      $('favorite-dialog').close();
+      persist(added ? `${movie.title} is now in your Top 4.` : 'Your favorites changed. Please choose again.', true);
+    }, 'secondary-button');
+    return choice;
+  }));
+  $('favorite-dialog').showModal();
+}
+function renderFavorites() {
+  const container = $('favorites-container');
+  if (!container) return;
+  const movies = Store.favorites(collection);
+  $('favorites-count').textContent = `${movies.length} / 4`;
+  const previous = new Map([...container.children].map(node => [node.favoriteKey, node]));
+  const nodes = Array.from({ length: 4 }, (_, index) => {
+    const movie = movies[index];
+    const key = movie ? Store.identity(movie) : 'empty:' + index;
+    const signature = movie ? JSON.stringify({ ...movie, rating: 0 }) : key;
+    let node = previous.get(key);
+    if (!node || node.favoriteSignature !== signature) {
+      node = element('article', movie ? 'favorite-film' : 'favorite-film favorite-empty');
+      node.favoriteKey = key; node.favoriteSignature = signature;
+      if (movie) {
+        const open = button('', () => openDetails(Store.find(collection, movie) || movie), 'movie-open');
+        open.setAttribute('aria-label', `View details for favorite ${movie.title}`);
+        open.append(poster(movie));
+        const body = element('div', 'favorite-body');
+        node.rank = element('span', 'favorite-rank');
+        const title = button(movie.title, () => openDetails(Store.find(collection, movie) || movie), 'title-button');
+        const actions = element('div', 'favorite-order');
+        const move = direction => {
+          Store.moveFavorite(collection, movie, direction);
+          persist(`Top 4 order updated for ${movie.title}.`, true);
+        };
+        node.earlier = button('←', () => move(-1));
+        node.later = button('→', () => move(1));
+        node.earlier.setAttribute('aria-label', `Move ${movie.title} earlier`);
+        node.later.setAttribute('aria-label', `Move ${movie.title} later`);
+        const remove = button('♥ Remove', () => toggleFavorite(movie), 'favorite-button');
+        remove.setAttribute('aria-label', `Remove ${movie.title} from favorites`);
+        actions.append(node.earlier, node.later, remove);
+        body.append(node.rank, title, actions); node.append(open, body);
+      } else {
+        const empty = element('div', 'favorite-slot');
+        empty.append(element('span', 'favorite-slot-heart', '♡'), element('p', '', `Your #${index + 1} favorite`));
+        const hint = element('div', 'favorite-body', 'A film that stays with you.');
+        node.append(empty, hint);
+      }
+    }
+    if (movie) {
+      node.rank.textContent = `0${index + 1} / YOUR TOP 4`;
+      node.earlier.disabled = index === 0; node.later.disabled = index === movies.length - 1;
+    }
+    return node;
+  });
+  for (const child of [...container.children]) if (!nodes.includes(child)) child.remove();
+  nodes.forEach((node, index) => { if (container.children[index] !== node) container.insertBefore(node, container.children[index] || null); });
+}
+function pickMovie() {
+  pickerStarted = true;
+  pickedMovie = Store.pickRandom(collection, pickedMovie);
+  renderPicker();
+  if (pickedMovie) announce(`Tonight’s pick: ${pickedMovie.title}.`);
+}
+function renderPicker() {
+  const container = $('picker-poster');
+  if (!container) return;
+  // A selected film can be moved or removed in details, cards, or another tab.
+  pickedMovie = pickedMovie && collection.watchlist.find(movie => Store.identity(movie) === Store.identity(pickedMovie)) || null;
+  const movie = pickedMovie;
+  const signature = movie ? JSON.stringify(movie) : 'empty';
+  if (container.movieSignature !== signature) {
+    container.movieSignature = signature;
+    container.replaceChildren(movie ? poster(movie, false) : element('div', 'picker-placeholder', '✦'));
+  }
+  $('picker-message').textContent = !collection.watchlist.length ? 'Your watchlist is waiting for its first film. Add movies on Discover, then let us pick one.' : movie ? 'Tonight’s pick' : pickerStarted ? 'Ready for another? Pick your next film from the watchlist.' : 'Too many good choices? Let chance decide.';
+  $('picker-title').textContent = movie?.title || 'Your next movie night starts here.';
+  $('picker-year').textContent = movie ? movie.year || 'Release date unknown' : '';
+  $('picker-overview').textContent = movie ? movie.overview || 'No description saved yet. Open movie details for more.' : 'Pick a film and let your watchlist surprise you.';
+  $('picker-watched').disabled = !movie;
+  $('picker-details').disabled = !movie;
+  $('pick-another').disabled = !collection.watchlist.length || !pickerStarted;
+}
+$('pick-movie')?.addEventListener('click', pickMovie);
+$('pick-another')?.addEventListener('click', pickMovie);
+$('picker-details')?.addEventListener('click', () => { if (pickedMovie) openDetails(pickedMovie); });
+$('picker-watched')?.addEventListener('click', () => { if (pickedMovie) changeStatus(pickedMovie, 'watched'); });
+$('cancel-favorite').addEventListener('click', () => $('favorite-dialog').close());
+$('favorite-dialog').addEventListener('close', () => { pendingFavorite = null; });
 $('close-dialog').addEventListener('click', () => $('movie-dialog').close());
 $('movie-dialog').addEventListener('close', () => { activeMovie = null; detailRequest++; });
 $('catalog-search').addEventListener('submit', event => { event.preventDefault(); searchCatalog(); });
@@ -380,19 +491,6 @@ api('genres').then(data => {
   }
   render();
 }).catch(() => { /* Details still provide genre names when the genre index is unavailable. */ });
-
-$('import-collection').addEventListener('change', async event => {
-  const file = event.target.files[0];
-  if (!file) return;
-  try {
-    if (file.size > 5 * 1024 * 1024) throw Error('File too large');
-    const imported = Store.normalize(JSON.parse(await file.text()));
-    // Merge rather than overwrite: existing entries and their ratings win.
-    collection = Store.normalize({ watched: [...collection.watched, ...imported.watched], watchlist: [...collection.watchlist, ...imported.watchlist] });
-    persist('Collection imported. Existing watched entries and ratings take priority for duplicates.');
-  } catch { announce('Could not import. Choose a MovieList collection JSON file under 5 MB.'); }
-  event.target.value = '';
-});
 
 // Other pages on this origin share the same collection; refresh open tabs and restored pages.
 function refreshCollection() {

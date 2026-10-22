@@ -42,10 +42,10 @@ Double-clicking `index.html`, using a plain static server, or using GitHub Pages
 ## Pages and navigation
 
 - **Discover (`index.html`)**: popular and trending TMDB films, catalog search, details and collection actions. Personal collection grids live on their own pages.
-- **Watched (`watched.html`)**: watched films and editable personal ratings, title search, and sorting by saved order, title, rating or release year. Move films to Watchlist or remove them.
-- **Watchlist (`watchlist.html`)**: saved films to watch, title search, removal and marking films watched.
+- **Watched (`watched.html`)**: watched films and editable personal ratings, title search, and sorting by saved order, title, rating or release year. Choose and order your Top 4 favorite films. Move films to Watchlist or remove them.
+- **Watchlist (`watchlist.html`)**: saved films to watch, title search, removal, marking films watched and a random movie picker.
 
-All pages share the same responsive navigation, active page indicator, details dialog, collection statistics, JSON import and dark design. Each reads the existing `movielist-v2` key on the same origin. Open tabs refresh on storage changes; restored pages reload saved data. Navigation never resets the collection. Legacy TMDB linking opens a matching catalog search on the collection page when requested.
+All pages share the same responsive navigation, active page indicator, details dialog, collection statistics and dark design. Each reads the existing `movielist-v2` key on the same origin. Open tabs refresh on storage changes; restored pages reload saved data. Navigation never resets the collection. Legacy TMDB linking opens a matching catalog search on the collection page when requested.
 
 ## Usage
 
@@ -60,6 +60,22 @@ All pages share the same responsive navigation, active page indicator, details d
 
 Status and rating updates reuse existing cards and detail controls to preserve focus. Rating space is reserved, notifications float outside the page layout, and a stable scrollbar gutter avoids shifts when details open. Removing cards reserves the current grid height until a search/sort or navigation, keeping the viewport from collapsing near the bottom. Rating sorts reorder immediately while retaining the viewport position. The details dialog stays open during updates. Reduced-motion preferences are respected.
 
+## Favorite Movies — My Top 4
+
+Select **♡ Add to Favorites** on any watched movie card or its details. The selected **♥ In Favorites** button removes it with one click. Favorites are optional: a new or existing collection starts with none unless you choose them.
+
+Your four ordered poster slots appear at the top of Watched, independent of title/genre filters. Click a poster or title to open the existing details dialog. Use the labeled **← / →** buttons to reorder, including with a keyboard or on mobile. Remove a favorite with its heart button. If all four slots are filled, adding another opens a chooser to replace one favorite in its current position. Cancel keeps your Top 4 unchanged.
+
+Only watched films can be favorites. Removing a film from Watched or moving it to Watchlist removes its favorite reference automatically. Returning it to Watched does not automatically favorite it again. Favorite actions do not change ratings. Legacy entries retain favorites when explicitly linked to TMDB, with poster fallbacks until linking supplies a real poster.
+
+## What Should I Watch?
+
+On Watchlist, click **What Should I Watch?** for a random film from your entire saved watchlist. The picker shows its saved TMDB poster, title, release year and synopsis. **Pick Another** avoids the last pick when more than one film is available; a single remaining film can be picked again. Search and genre filters affect the collection grid but do not restrict this draw.
+
+**Movie details** opens the existing TMDB details dialog. **Mark as Watched** moves the selected film out of Watchlist into Watched, initially unrated, and clears the current pick. You can also manage its status in details or a normal card. Open tabs stay synchronized, and a pick removed elsewhere stops being actionable. An empty watchlist shows a prompt to add films on Discover.
+
+The draw uses local data and adds no API requests or keys. Saved metadata remains usable offline; opening full details uses the existing TMDB integration. The current random pick is temporary and resets on navigation/reload. Favorite order is persistent. Both features reserve their display space and preserve viewport position during collection changes; existing movie cards and controls are reused.
+
 ## Genre filtering
 
 Every page offers a **Genre** dropdown with All Genres and TMDB's movie genres, including Action, Comedy, Drama, Horror, Thriller, Science Fiction, Romance, Animation and Adventure. The genre list refreshes from TMDB; its standard taxonomy is available as an offline fallback.
@@ -72,11 +88,11 @@ Every page offers a **Genre** dropdown with All Genres and TMDB's movie genres, 
 
 A new browser starts with **empty personal collections**, with no default watched films or ratings. Existing stored entries, including starter films saved by an older version, are retained because the app cannot reliably distinguish them from your choices. Remove any you do not want.
 
-The new `movielist-v2` localStorage key stores TMDB IDs, titles, release years, poster paths, synopsis, genres, status (via collection membership) and personal ratings. Existing `movielist-v1` and original `movies` data are read when v2 does not exist; those old keys are never deleted. Previously saved ratings are retained. Conflicting duplicate entries prefer Watched.
+The new `movielist-v2` localStorage key stores TMDB IDs, titles, release years, poster paths, synopsis, genres, status (via collection membership) and personal ratings. An optional ordered `favorites` array in the same record stores up to four references to watched movies, without duplicating metadata. Older records without it load with no favorites. Existing `movielist-v1` and original `movies` data are read when v2 does not exist; those old keys are never deleted. Previously saved ratings are retained. Conflicting duplicate entries prefer Watched.
 
 Older manual entries have no verified TMDB ID. They stay visible with a poster fallback. Select **Find in TMDB**, then **Link this film** on the correct result to preserve the old status/rating and add the real metadata. Linking is explicit so remakes or unrelated titles are not silently merged. If the same TMDB film is already saved, entries merge with Watched taking priority; an existing nonzero watched rating takes priority.
 
-localStorage belongs to a browser **and origin**: a file URL, localhost and a deployed URL do not share data. The export section has been removed; existing saved data is unchanged. To move browsers, you can manually back up the `movielist-v2` JSON using browser developer tools and import that file at the new address. Import merges entries and does not insert duplicate TMDB IDs. Watched takes priority; existing watched ratings win over imported duplicates. If returning to the old version to export, its stored JSON has the same watched/watchlist structure and can be imported here.
+localStorage belongs to a browser **and origin**: a file URL, localhost and a deployed URL do not share data. The entire JSON Import/Export interface has been removed. Existing localStorage records are still read and saved normally; no data is reset or deleted. The previous change removed Export but left Import markup in all three source pages, along with its JavaScript handler and CSS. Since the build copies source assets into `dist`, rebuilding reproduced that remaining interface. Both source and generated assets are now checked by regression tests.
 
 If saved JSON is unreadable, the app leaves it untouched and keeps new changes temporary; fix/restore browser data and reload before saving again. If writing fails, a visible warning explains that changes may be lost. This is a single-browser prototype without accounts or cloud sync.
 
@@ -88,7 +104,7 @@ npm test
 
 Tests cover empty defaults, ID deduplication and state moves, clearing ratings outside Watched, optional half-star ratings, saved metadata round trips, old data migration, explicit linking, malformed data, proxy input validation, missing configuration, server-only authorization and sanitized upstream failures. No real token is used by tests.
 
-Automated frontend tests use a simulated DOM and mocked TMDB responses. They cover navigation targets and active states, initialization on all three pages, isolated collection grids, sorting, filtering, status moves, ratings, reload persistence, storage events, legacy linking, details, search races and API errors. Genre tests cover multi-genre matches, combined search/sorting, pagination resets, empty-page continuation, category changes and proxy genre validation. Export UI removal is also checked. Interaction regressions also cover all ten half-star values, clearing ratings, keyboard changes, one-click status toggles, stable card/control identity, dialog continuity and scroll restoration. The build includes all six public assets. Live authenticated TMDB responses and a deployed Netlify instance require a configured token and a manual browser check.
+Automated frontend tests use a simulated DOM and mocked TMDB responses. They cover navigation targets and active states, initialization on all three pages, isolated collection grids, sorting, filtering, status moves, ratings, reload persistence, storage events, legacy linking, details, search races and API errors. Genre tests cover multi-genre matches, combined search/sorting, pagination resets, empty-page continuation, category changes and proxy genre validation. Regression tests rebuild twice and check all source and generated pages, scripts and styles for Import/Export UI remnants. They also verify existing data survives initialization and restored-page refreshes. Interaction regressions also cover all ten half-star values, clearing ratings, keyboard changes, one-click status toggles, stable card/control identity, dialog continuity and scroll restoration. Favorites and picker tests additionally cover watched-only selection, limits, replacement, ordering, removal, reloads, cross-tab updates, legacy linking, existing-data preservation, empty/single watchlists, non-repeating picks and moving a pick into Watched. The build includes all six public assets. Live authenticated TMDB responses and a deployed Netlify instance require a configured token and a manual browser check.
 
 Before recording your demo:
 
@@ -97,8 +113,10 @@ Before recording your demo:
 3. Open a movie and verify title, year, synopsis and genres. Add it to Watchlist (blue), move it to Watched (green), and rate it 3.5. Navigate to Watched and verify the film and its rating. Open Watchlist and verify it is absent.
 4. Refresh: the same movie and rating should remain. Repeatedly press the same status button; no duplicate should appear.
 5. Move it to Watchlist: rating should disappear. Remove it: Not added should appear. Refresh again to verify removal.
-6. Search each collection, test every Watched sort option, import JSON, and link an old manual entry. Open a second tab and verify status/rating changes appear there.
-7. Check keyboard focus, Escape to close details, mobile widths, image fallbacks, and retry behavior with offline mode or an absent token.
+6. Search each collection, test every Watched sort option, and link an old manual entry. Open a second tab and verify status/rating changes appear there.
+7. Add four favorites, replace one, reorder them with arrows, refresh, and verify their order and ratings. Move a favorite to Watchlist and confirm it leaves Top 4.
+8. Pick a random watchlist film, try Pick Another, open details, and mark it watched. Check empty and single-film watchlists.
+9. Check keyboard focus, Escape to close details, mobile widths, image fallbacks, and retry behavior with offline mode or an absent token.
 
 ## Credits
 

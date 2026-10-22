@@ -24,6 +24,7 @@
         result[list].push(movie);
       }
     }
+    result.favorites = validFavorites(result, data.favorites);
     return result;
   }
   function load(storage) {
@@ -33,6 +34,41 @@
     if (v1 !== null) return normalize(JSON.parse(v1));
     const legacy = storage.getItem('movies');
     return normalize({ watched: legacy !== null ? JSON.parse(legacy) : [], watchlist: [] });
+  }
+  // Stable references avoid duplicating movie data or losing legacy favorites on reload.
+  function identity(movie) { return movie.tmdbId ? 'tmdb:' + movie.tmdbId : 'legacy:' + JSON.stringify([movie.title.toLowerCase(), String(movie.year || '')]); }
+  function validFavorites(data, refs = data.favorites) {
+    const watched = new Set(data.watched.map(identity));
+    return [...new Set(Array.isArray(refs) ? refs : [])].filter(ref => watched.has(ref)).slice(0, 4);
+  }
+  function favorites(data) {
+    return validFavorites(data).map(ref => data.watched.find(movie => identity(movie) === ref));
+  }
+  function isFavorite(data, movie) { return validFavorites(data).includes(identity(movie)); }
+  function toggleFavorite(data, movie) {
+    const refs = validFavorites(data), ref = identity(movie);
+    if (refs.includes(ref)) { data.favorites = refs.filter(item => item !== ref); return true; }
+    if (status(data, movie) !== 'watched' || refs.length >= 4) return false;
+    data.favorites = [...refs, ref];
+    return true;
+  }
+  function replaceFavorite(data, previous, movie) {
+    const refs = validFavorites(data), index = refs.indexOf(identity(previous));
+    if (index < 0 || status(data, movie) !== 'watched' || refs.includes(identity(movie))) return false;
+    refs[index] = identity(movie); data.favorites = refs;
+    return true;
+  }
+  function moveFavorite(data, movie, direction) {
+    const refs = validFavorites(data), index = refs.indexOf(identity(movie)), next = index + direction;
+    if (![-1, 1].includes(direction) || index < 0 || next < 0 || next >= refs.length) return false;
+    [refs[index], refs[next]] = [refs[next], refs[index]];
+    data.favorites = refs; return true;
+  }
+  function pickRandom(data, previous = null, random = Math.random) {
+    const movies = data.watchlist;
+    if (!movies.length) return null;
+    const candidates = movies.length > 1 ? movies.filter(movie => !previous || identity(movie) !== identity(previous)) : movies;
+    return candidates[Math.floor(random() * candidates.length)];
   }
   function same(a, b) { return a.tmdbId && b.tmdbId ? a.tmdbId === b.tmdbId : a.id === b.id; }
   function status(data, movie) { return ['watched', 'watchlist'].find(list => data[list].some(item => same(item, movie))) || 'neutral'; }
@@ -44,11 +80,13 @@
     data.watched = data.watched.filter(item => !same(item, movie));
     data.watchlist = data.watchlist.filter(item => !same(item, movie));
     if (next !== 'neutral') data[next].push({ ...movie, ...(previous || {}), rating: next === 'watched' && previousStatus === 'watched' ? rating(previous.rating) : 0 });
+    data.favorites = validFavorites(data);
   }
   // Linking is explicit: a title match alone must never merge unrelated remakes.
   function link(data, legacy, tmdb) {
     const old = find(data, legacy);
     if (!old) return;
+    const oldFavorites = validFavorites(data);
     const list = status(data, old);
     const existing = find(data, tmdb);
     if (existing) {
@@ -62,8 +100,9 @@
     }
     data.watched = data.watched.filter(item => !same(item, legacy));
     data.watchlist = data.watchlist.filter(item => !same(item, legacy));
+    data.favorites = validFavorites(data, oldFavorites.map(ref => ref === identity(old) ? identity(tmdb) : ref));
   }
-  const api = { KEY, rating, load, normalize, status, find, setStatus, link };
+  const api = { KEY, rating, load, normalize, status, find, setStatus, link, identity, favorites, isFavorite, toggleFavorite, replaceFavorite, moveFavorite, pickRandom };
   if (typeof module !== 'undefined') module.exports = api;
   else root.MovieCollection = api;
 })(globalThis);
