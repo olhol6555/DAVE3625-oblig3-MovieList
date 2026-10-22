@@ -1,0 +1,33 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#101719">
+  <title>Your Statistics — MovieList</title><link rel="stylesheet" href="style.css">
+  <script src="collection.js" defer></script><script src="script.js" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="index.html">◧ MovieList<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><a href="index.html">Discover</a><a href="watched.html">Watched</a><a href="watchlist.html">Watchlist</a><a href="stats.html" aria-current="page">Stats</a></nav></header>
+  <main>
+    <section class="catalog-hero stats-hero"><p class="eyebrow">Your taste, in perspective</p><h1>A life in<br>film<span>.</span></h1><p>Your collection tells a story. Explore the genres you return to, the films you love, and the ratings that make it yours.</p><a class="secondary-button" href="watched.html">View watched films →</a></section>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <section class="stats-overview" aria-label="Collection overview">
+      <div class="metric-card"><span>Movies watched</span><strong id="watched-count">0</strong><small>Your personal cinema</small></div>
+      <div class="metric-card"><span>On your watchlist</span><strong id="watchlist-count">0</strong><small>Stories still to come</small></div>
+      <div class="metric-card"><span>Average rating</span><strong id="average-rating">—</strong><small>Personal ratings · out of 5</small></div>
+      <div class="metric-card"><span>Rated movies</span><strong id="rated-count">0</strong><small id="rated-summary">Optional, always personal</small></div>
+    </section>
+    <p id="stats-update" class="sr-only" role="status" aria-live="polite"></p>
+    <div id="statistics" class="statistics-layout">
+      <section class="chart-panel" aria-labelledby="genre-chart-title"><p class="eyebrow">Where your taste takes you</p><h2 id="genre-chart-title">Most-watched genres</h2><p class="chart-note">Each film counts toward every one of its genres.</p><div id="genre-chart"></div><p id="genre-note" class="chart-note"></p></section>
+      <section class="chart-panel" aria-labelledby="rating-chart-title"><p class="eyebrow">Every star is yours</p><h2 id="rating-chart-title">Your ratings</h2><p id="rating-summary" class="chart-note"></p><div id="rating-chart"></div></section>
+      <section class="chart-panel decade-panel" aria-labelledby="decade-chart-title"><p class="eyebrow">Across the years</p><h2 id="decade-chart-title">Release decades</h2><p class="chart-note">The eras behind your watched collection.</p><div id="decade-chart"></div><p id="decade-note" class="chart-note"></p></section>
+      <section class="chart-panel highest-panel" aria-labelledby="highest-title"><div class="feature-heading"><div><p class="eyebrow">The ones that stay with you</p><h2 id="highest-title">Your highest-rated films</h2></div><a class="secondary-button" href="watched.html">All watched →</a></div><p class="chart-note">Up to eight films, ordered by your personal rating. Open a film to revisit its details.</p><div id="highest-rated" class="movie-grid"></div></section>
+    </div>
+    <section id="credits" class="credits"><h2>About & credits</h2><p>MovieList is a student movie tracking prototype. Your collection is stored only in this browser.</p><a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer"><img class="tmdb-logo" src="https://files.readme.io/29c6fee-blue_short.svg" alt="TMDB" width="100" height="36"></a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></section>
+  </main>
+  <dialog id="favorite-dialog" aria-labelledby="favorite-replace-title"><div class="dialog-top"><button id="cancel-favorite" class="secondary-button" type="button" autofocus>Cancel</button></div><h2 id="favorite-replace-title">Make room in your Top 4</h2><p id="favorite-replace-message"></p><div id="favorite-replacements" class="favorite-replacements"></div></dialog>
+  <dialog id="movie-dialog" aria-labelledby="detail-title"><div class="dialog-top"><button id="close-dialog" class="secondary-button" autofocus>Close ✕</button></div><div id="detail-content"></div></dialog>
+  <footer><a class="brand" href="index.html">MovieList<span class="brand-dot">.</span></a><p>For the films that stay with you.</p><span>Stored on this browser · Powered by TMDB</span></footer>
+</body>
+</html>
+

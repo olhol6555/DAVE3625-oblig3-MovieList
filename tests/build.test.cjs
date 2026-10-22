@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const root = path.join(__dirname, '..');
-const assets = ['index.html', 'watched.html', 'watchlist.html', 'script.js', 'style.css', 'collection.js'];
+const assets = ['index.html', 'watched.html', 'watchlist.html', 'stats.html', 'script.js', 'style.css', 'collection.js'];
 function checkInterface(directory) {
   for (const file of assets) {
     const contents = fs.readFileSync(path.join(directory, file), 'utf8');

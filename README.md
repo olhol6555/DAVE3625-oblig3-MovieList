@@ -23,7 +23,7 @@ npm install --global netlify-cli
 npm run dev
 ```
 
-Open **http://localhost:8888** (or the URL Netlify prints). Netlify Dev reads the local `.env` file and runs the functions. Restart after changing the token. `npm run dev` first copies the six public assets to `dist`; after editing frontend files, restart this command to refresh that copy. There are no frontend packages to install and no bundler.
+Open **http://localhost:8888** (or the URL Netlify prints). Netlify Dev reads the local `.env` file and runs the functions. Restart after changing the token. `npm run dev` first copies the seven public assets to `dist`; after editing frontend files, restart this command to refresh that copy. There are no frontend packages to install and no bundler.
 
 Double-clicking `index.html`, using a plain static server, or using GitHub Pages cannot run the proxy. Without configuration, the collection still works and Discover shows an actionable setup error with a retry button. A working catalog needs the token, Netlify functions and internet access.
 
@@ -37,15 +37,16 @@ Double-clicking `index.html`, using a plain static server, or using GitHub Pages
 3. In the site's environment variable settings, add **TMDB_READ_TOKEN** with your Read Access Token. Make it available to **Functions** (or all scopes), and to the deployment contexts you use. Do not put its value in `netlify.toml`.
 4. Deploy or redeploy after adding/changing the variable. Test search and movie details on the deployed URL.
 
-`build.cjs` copies only `index.html`, `watched.html`, `watchlist.html`, `style.css`, `script.js` and `collection.js` to `dist`. Server code, `.env`, tests and configuration stay outside the published directory. Deploy through the repository/Netlify build or the CLI with functions; uploading only the static folder does not include the API proxy. This change does not publish the site automatically.
+`build.cjs` copies only `index.html`, `watched.html`, `watchlist.html`, `stats.html`, `style.css`, `script.js` and `collection.js` to `dist`. Server code, `.env`, tests and configuration stay outside the published directory. Deploy through the repository/Netlify build or the CLI with functions; uploading only the static folder does not include the API proxy. This change does not publish the site automatically.
 
 ## Pages and navigation
 
 - **Discover (`index.html`)**: popular and trending TMDB films, catalog search, details and collection actions. Personal collection grids live on their own pages.
 - **Watched (`watched.html`)**: watched films and editable personal ratings, title search, and sorting by saved order, title, rating or release year. Choose and order your Top 4 favorite films. Move films to Watchlist or remove them.
 - **Watchlist (`watchlist.html`)**: saved films to watch, title search, removal, marking films watched and a random movie picker.
+- **Stats (`stats.html`)**: personal collection totals, genre and rating charts, highest-rated films and release decades.
 
-All pages share the same responsive navigation, active page indicator, details dialog, collection statistics and dark design. Each reads the existing `movielist-v2` key on the same origin. Open tabs refresh on storage changes; restored pages reload saved data. Navigation never resets the collection. Legacy TMDB linking opens a matching catalog search on the collection page when requested.
+All four pages share the same responsive navigation, active page indicator, details dialog, collection statistics and dark design. Each reads the existing `movielist-v2` key on the same origin. Open tabs refresh on storage changes; restored pages reload saved data. Navigation never resets the collection. Legacy TMDB linking opens a matching catalog search on the collection page when requested.
 
 ## Usage
 
@@ -59,6 +60,20 @@ All pages share the same responsive navigation, active page indicator, details d
 - Missing or failed poster images display a text fallback. Full details have their own retry action.
 
 Status and rating updates reuse existing cards and detail controls to preserve focus. Rating space is reserved, notifications float outside the page layout, and a stable scrollbar gutter avoids shifts when details open. Removing cards reserves the current grid height until a search/sort or navigation, keeping the viewport from collapsing near the bottom. Rating sorts reorder immediately while retaining the viewport position. The details dialog stays open during updates. Reduced-motion preferences are respected.
+
+## Personal Statistics
+
+Open **Stats** in the navigation for statistics calculated from your actual localStorage collection. There are no example films or sample totals.
+
+- **Overview:** watched and watchlist totals, the number of rated films, and the average personal rating. Only valid personal ratings from 0.5 to 5 in half-star steps enter the average. An unrated collection displays **—**, rather than a made-up average.
+- **Genres:** watched films contribute once to each saved TMDB genre. Multi-genre films contribute to more than one bar, so genre counts can exceed the watched total. The chart explains how many films are missing genre metadata. Open their existing movie details or link legacy films from Watched to enrich metadata.
+- **Ratings:** all ten half-star bins are shown once you have ratings, including zero-count bins. Watchlist entries and unrated films are excluded. The average is rounded to one decimal place for display.
+- **Highest-rated films:** up to eight watched films, sorted by personal rating (title breaks ties), with real saved posters, ratings and existing detail/status/favorite controls.
+- **Release decades:** groups watched films by saved release year. Missing or invalid years are excluded and counted in a note. This is release-era information, not viewing dates.
+
+The page works offline with saved metadata and makes no catalog requests on load. Opening movie details still uses the existing TMDB proxy. Statistics update after local status/rating changes, changes in another open tab, and restored-page navigation. Visiting Stats never writes to or resets your collection. Charts use vanilla JavaScript and CSS, with visible labels/counts, semantic lists and a screen-reader update announcement. Empty collections, missing metadata and unrated films have dedicated explanations.
+
+The design pass preserves the dark cinema theme while refining navigation, typography, card spacing, two-line movie titles, fixed poster ratios and consistent control sizes. Loading feedback has a reserved space; interaction updates reuse existing cards and preserve viewport position. Reduced-motion preferences disable decorative motion.
 
 ## Favorite Movies — My Top 4
 
@@ -104,7 +119,7 @@ npm test
 
 Tests cover empty defaults, ID deduplication and state moves, clearing ratings outside Watched, optional half-star ratings, saved metadata round trips, old data migration, explicit linking, malformed data, proxy input validation, missing configuration, server-only authorization and sanitized upstream failures. No real token is used by tests.
 
-Automated frontend tests use a simulated DOM and mocked TMDB responses. They cover navigation targets and active states, initialization on all three pages, isolated collection grids, sorting, filtering, status moves, ratings, reload persistence, storage events, legacy linking, details, search races and API errors. Genre tests cover multi-genre matches, combined search/sorting, pagination resets, empty-page continuation, category changes and proxy genre validation. Regression tests rebuild twice and check all source and generated pages, scripts and styles for Import/Export UI remnants. They also verify existing data survives initialization and restored-page refreshes. Interaction regressions also cover all ten half-star values, clearing ratings, keyboard changes, one-click status toggles, stable card/control identity, dialog continuity and scroll restoration. Favorites and picker tests additionally cover watched-only selection, limits, replacement, ordering, removal, reloads, cross-tab updates, legacy linking, existing-data preservation, empty/single watchlists, non-repeating picks and moving a pick into Watched. The build includes all six public assets. Live authenticated TMDB responses and a deployed Netlify instance require a configured token and a manual browser check.
+Automated frontend tests use a simulated DOM and mocked TMDB responses. They cover navigation targets and active states, initialization on all three pages, isolated collection grids, sorting, filtering, status moves, ratings, reload persistence, storage events, legacy linking, details, search races and API errors. Genre tests cover multi-genre matches, combined search/sorting, pagination resets, empty-page continuation, category changes and proxy genre validation. Regression tests rebuild twice and check all source and generated pages, scripts and styles for Import/Export UI remnants. They also verify existing data survives initialization and restored-page refreshes. Interaction regressions also cover all ten half-star values, clearing ratings, keyboard changes, one-click status toggles, stable card/control identity, dialog continuity and scroll restoration. Favorites and picker tests additionally cover watched-only selection, limits, replacement, ordering, removal, reloads, cross-tab updates, legacy linking, existing-data preservation, empty/single watchlists, non-repeating picks and moving a pick into Watched. Statistics tests cover empty/unrated collections, missing metadata, multi-genre counts, every half-star bin, averages, top-film ordering, decades, non-mutating calculations and live updates across tabs. Navigation and the no-Import/Export regression checks include Stats. The build includes all seven public assets. Live authenticated TMDB responses and a deployed Netlify instance require a configured token and a manual browser check.
 
 Before recording your demo:
 
@@ -116,7 +131,8 @@ Before recording your demo:
 6. Search each collection, test every Watched sort option, and link an old manual entry. Open a second tab and verify status/rating changes appear there.
 7. Add four favorites, replace one, reorder them with arrows, refresh, and verify their order and ratings. Move a favorite to Watchlist and confirm it leaves Top 4.
 8. Pick a random watchlist film, try Pick Another, open details, and mark it watched. Check empty and single-film watchlists.
-9. Check keyboard focus, Escape to close details, mobile widths, image fallbacks, and retry behavior with offline mode or an absent token.
+9. Open Stats and compare totals with Watched/Watchlist. Rate a film, move one to Watchlist, and verify averages, genres and chart counts update, including in another tab. Check empty and unrated states.
+10. Check keyboard focus, Escape to close details, mobile widths, image fallbacks, and retry behavior with offline mode or an absent token.
 
 ## Credits
 

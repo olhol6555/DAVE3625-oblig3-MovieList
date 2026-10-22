@@ -102,7 +102,36 @@
     data.watchlist = data.watchlist.filter(item => !same(item, legacy));
     data.favorites = validFavorites(data, oldFavorites.map(ref => ref === identity(old) ? identity(tmdb) : ref));
   }
-  const api = { KEY, rating, load, normalize, status, find, setStatus, link, identity, favorites, isFavorite, toggleFavorite, replaceFavorite, moveFavorite, pickRandom };
+  // Derived, read-only statistics: never infer ratings or genres for missing metadata.
+  function statistics(data) {
+    const watched = data.watched;
+    const rated = watched.filter(movie => rating(movie.rating) > 0);
+    const genres = new Map(), decades = new Map();
+    const distribution = Array.from({ length: 10 }, (_, index) => ({ rating: (index + 1) / 2, count: 0 }));
+    let missingGenres = 0, missingYears = 0;
+    for (const movie of watched) {
+      const names = new Set((movie.genres || []).filter(name => typeof name === 'string' && name.trim()).map(name => name.trim()));
+      if (!names.size) missingGenres++;
+      for (const name of names) genres.set(name, (genres.get(name) || 0) + 1);
+      if (/^\d{4}$/.test(String(movie.year)) && Number(movie.year) >= 1800) {
+        const decade = Math.floor(Number(movie.year) / 10) * 10;
+        decades.set(decade, (decades.get(decade) || 0) + 1);
+      } else missingYears++;
+      const value = rating(movie.rating);
+      if (value) distribution[value * 2 - 1].count++;
+    }
+    return {
+      watchedCount: watched.length, watchlistCount: data.watchlist.length,
+      ratedCount: rated.length,
+      averageRating: rated.length ? rated.reduce((sum, movie) => sum + movie.rating, 0) / rated.length : null,
+      genres: [...genres].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+      ratingDistribution: distribution,
+      decades: [...decades].sort((a, b) => a[0] - b[0]).map(([decade, count]) => ({ name: decade + 's', count })),
+      missingGenres, missingYears,
+      highestRated: [...rated].sort((a, b) => b.rating - a.rating || a.title.localeCompare(b.title)).slice(0, 8)
+    };
+  }
+  const api = { KEY, rating, load, normalize, status, find, setStatus, link, identity, favorites, isFavorite, toggleFavorite, replaceFavorite, moveFavorite, pickRandom, statistics };
   if (typeof module !== 'undefined') module.exports = api;
   else root.MovieCollection = api;
 })(globalThis);

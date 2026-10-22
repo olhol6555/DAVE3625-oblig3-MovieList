@@ -24,7 +24,7 @@ function persist(message, interaction = false) {
   const x = window.scrollX, y = window.scrollY;
   const focused = document.activeElement;
   if (interaction) {
-    for (const id of ['movie-container', 'watchlist-container']) {
+    for (const id of ['movie-container', 'watchlist-container', 'highest-rated', 'genre-chart', 'rating-chart', 'decade-chart']) {
       const grid = $(id);
       if (grid) grid.style.minHeight = Math.ceil(grid.getBoundingClientRect().height) + 'px';
     }
@@ -197,6 +197,10 @@ function syncCards(container, movies, inCatalog = false) {
     node.movieKey = key;
     node.movieSignature = signature;
     updateControlsWithin(node);
+    if ($('statistics')) {
+      const score = [...node.children[1].children].find(child => child.className === 'personal-score');
+      if (score) score.textContent = `★ ${Store.find(collection, movie)?.rating || 0} / 5`;
+    }
     return node;
   });
   for (const child of [...container.children]) if (!nodes.includes(child)) child.remove();
@@ -210,6 +214,7 @@ function card(movie, inCatalog = false) {
   const body = element('div', 'card-body');
   const title = button(movie.title, () => openDetails(movie), 'title-button');
   body.append(title, element('p', 'film-year', movie.year || 'Release date unknown'));
+  if ($('statistics')) body.append(element('p', 'personal-score', `★ ${Store.find(collection, movie)?.rating || movie.rating} / 5`));
   if (inCatalog && linkingMovie) body.append(button('Link this film', () => {
     Store.link(collection, linkingMovie, movie);
     finishLink();
@@ -228,6 +233,45 @@ function renderCatalog() {
   $('load-more').textContent = busy ? 'Loading…' : 'Load more';
   $('retry-catalog').hidden = !failed;
 }
+function renderBarChart(container, entries, emptyText) {
+  if (!entries.length) {
+    container.replaceChildren(element('p', 'empty-state', emptyText));
+    return;
+  }
+  const max = Math.max(1, ...entries.map(entry => entry.count));
+  const list = element('ul', 'bar-chart');
+  for (const entry of entries) {
+    const row = element('li', 'chart-row');
+    const label = element('span', 'chart-label', entry.name);
+    const track = element('span', 'chart-track');
+    track.setAttribute('aria-hidden', 'true');
+    const fill = element('span', 'chart-fill');
+    fill.style.width = entry.count / max * 100 + '%';
+    track.append(fill);
+    const count = element('span', 'chart-count', String(entry.count));
+    count.append(element('span', 'sr-only', entry.count === 1 ? ' movie' : ' movies'));
+    row.append(label, track, count); list.append(row);
+  }
+  container.replaceChildren(list);
+}
+function renderStatistics(summary) {
+  const container = $('statistics');
+  if (!container) return;
+  $('rated-count').textContent = summary.ratedCount;
+  $('rated-summary').textContent = `${summary.watchedCount - summary.ratedCount} watched films unrated`;
+  const signature = JSON.stringify(summary);
+  if (container.statisticsSignature === signature) return;
+  container.statisticsSignature = signature;
+  renderBarChart($('genre-chart'), summary.genres, summary.watchedCount ? 'No genre information saved yet. Open your watched films’ details to fill in their TMDB metadata.' : 'Your taste starts with a film. Mark a movie as watched to explore your genres.');
+  $('genre-note').textContent = summary.missingGenres ? `${summary.missingGenres} watched film(s) have no saved genre information and are excluded from this chart.` : '';
+  renderBarChart($('rating-chart'), summary.ratedCount ? summary.ratingDistribution.map(bin => ({ name: bin.rating + ' ★', count: bin.count })) : [], 'No ratings yet. Give a watched film a star rating to see your distribution.');
+  $('rating-summary').textContent = summary.averageRating === null ? 'Only your personal ratings are included.' : `${summary.averageRating.toFixed(1)} / 5 average · ${summary.ratedCount} rated films`;
+  renderBarChart($('decade-chart'), summary.decades, 'Release decades will appear when watched films have saved release years.');
+  $('decade-note').textContent = summary.missingYears ? `${summary.missingYears} watched film(s) have no valid saved release year.` : '';
+  syncCards($('highest-rated'), summary.highestRated);
+  if (!summary.highestRated.length) $('highest-rated').append(element('p', 'empty-state', 'Your favorites deserve a few stars. Rate a watched film to see it here.'));
+  $('stats-update').textContent = `Statistics updated: ${summary.watchedCount} watched, ${summary.watchlistCount} on watchlist, ${summary.ratedCount} rated.`;
+}
 function render() {
   const query = $('movie-search')?.value.trim().toLowerCase() || '';
   const sort = $('movie-sort')?.value || 'saved';
@@ -243,8 +287,9 @@ function render() {
     if ($(`${list}-count`)) $(`${list}-count`).textContent = collection[list].length;
     if ($(`${list}-badge`)) $(`${list}-badge`).textContent = query || genre ? `${filtered.length} / ${collection[list].length}` : collection[list].length;
   }
-  const rated = collection.watched.filter(movie => movie.rating);
-  $('average-rating').textContent = rated.length ? (rated.reduce((sum, movie) => sum + movie.rating, 0) / rated.length).toFixed(1) : '—';
+  const summary = Store.statistics(collection);
+  $('average-rating').textContent = summary.averageRating === null ? '—' : summary.averageRating.toFixed(1);
+  renderStatistics(summary);
   renderCatalog();
   renderFavorites();
   renderPicker();
@@ -295,6 +340,7 @@ function finishLink() {
   renderCatalog();
 }
 function beginLink(movie) {
+  if (!$('discover')) { window.location.href = 'watched.html'; return; }
   linkingMovie = movie;
   $('catalog-container').replaceChildren();
   $('discover').hidden = false;
@@ -461,12 +507,12 @@ $('cancel-favorite').addEventListener('click', () => $('favorite-dialog').close(
 $('favorite-dialog').addEventListener('close', () => { pendingFavorite = null; });
 $('close-dialog').addEventListener('click', () => $('movie-dialog').close());
 $('movie-dialog').addEventListener('close', () => { activeMovie = null; detailRequest++; });
-$('catalog-search').addEventListener('submit', event => { event.preventDefault(); searchCatalog(); });
-$('catalog-query').addEventListener('input', () => { if (!$('catalog-query').value.trim() && mode === 'search') searchCatalog(); });
-for (const category of ['popular', 'trending']) $(category).addEventListener('click', () => { mode = category; searchQuery = ''; $('catalog-query').value = ''; loadCatalog(true); });
-$('load-more').addEventListener('click', () => loadCatalog());
-$('retry-catalog').addEventListener('click', () => loadCatalog());
-$('cancel-link').addEventListener('click', finishLink);
+$('catalog-search')?.addEventListener('submit', event => { event.preventDefault(); searchCatalog(); });
+$('catalog-query')?.addEventListener('input', () => { if (!$('catalog-query').value.trim() && mode === 'search') searchCatalog(); });
+for (const category of ['popular', 'trending']) $(category)?.addEventListener('click', () => { mode = category; searchQuery = ''; $('catalog-query').value = ''; loadCatalog(true); });
+$('load-more')?.addEventListener('click', () => loadCatalog());
+$('retry-catalog')?.addEventListener('click', () => loadCatalog());
+$('cancel-link')?.addEventListener('click', finishLink);
 function filterCollection() {
   for (const id of ['movie-container', 'watchlist-container']) if ($(id)) $(id).style.minHeight = '';
   render();
@@ -476,8 +522,8 @@ $('movie-sort')?.addEventListener('change', filterCollection);
 $('movie-genre')?.addEventListener('change', filterCollection);
 $('catalog-genre')?.addEventListener('change', () => loadCatalog(true));
 render();
-if (!$('discover').hidden) loadCatalog(true);
-api('genres').then(data => {
+if ($('discover') && !$('discover').hidden) loadCatalog(true);
+if ($('catalog-container')) api('genres').then(data => {
   if (!Array.isArray(data.genres) || !data.genres.length) return;
   genreNames = new Map(data.genres.map(genre => [genre.id, genre.name]));
   for (const id of ['catalog-genre', 'movie-genre']) {

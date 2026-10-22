@@ -97,11 +97,11 @@ test('missing API configuration produces visible setup guidance and retry', asyn
   assert.equal(app.dom['load-more'].hidden, true);
 });
 
-test('three pages have working navigation, isolated views and consistent active links', () => {
-  for (const page of ['index.html', 'watched.html', 'watchlist.html']) {
+test('all four pages have working navigation, isolated views and consistent active links', () => {
+  for (const page of ['index.html', 'watched.html', 'watchlist.html', 'stats.html']) {
     const html = fs.readFileSync(path.join(root, page), 'utf8');
     const nav = html.match(/<nav[\s\S]*?<\/nav>/)[0];
-    for (const target of ['index.html', 'watched.html', 'watchlist.html']) {
+    for (const target of ['index.html', 'watched.html', 'watchlist.html', 'stats.html']) {
       assert.ok(nav.includes('href="' + target + '"'));
     }
     assert.ok(nav.includes('href="' + page + '" aria-current="page"'));
@@ -267,12 +267,14 @@ test('Discover genre resets pagination, filters search/trending pages and permit
 });
 
 test('export UI is removed and status labels switch without replacing buttons', async () => {
-  for (const page of ['index.html', 'watched.html', 'watchlist.html']) {
+  for (const page of ['index.html', 'watched.html', 'watchlist.html', 'stats.html']) {
     const html = fs.readFileSync(path.join(root, page), 'utf8');
     assert.ok(!html.includes('export-collection'));
     assert.ok(!html.includes('backup-controls'));
-    assert.ok(html.includes('All Genres'));
-    assert.ok(html.includes('Science Fiction'));
+    if (page !== 'stats.html') {
+      assert.ok(html.includes('All Genres'));
+      assert.ok(html.includes('Science Fiction'));
+    }
   }
   const app = boot(async url => response(url.includes('action=genres') ? { genres: [] } : { results: [tmdbMovie], total_pages: 1 })); await tick();
   const controls = app.dom['catalog-container'].children[0].children[1].children[2];
@@ -363,7 +365,7 @@ test('all pages initialize without transfer controls and preserve existing store
     favorites: ['tmdb:1']
   });
   const saved = { 'movielist-v2': original, 'movielist-v1': 'older backup' };
-  for (const page of ['index.html','watched.html','watchlist.html']) {
+  for (const page of ['index.html','watched.html','watchlist.html','stats.html']) {
     const app = boot(async url => response(url.includes('action=genres') ? {genres:[]} : {results:[],total_pages:0}), page, saved);
     await tick();
     assert.equal(app.run('collection.watched[0].rating'), 4.5);
@@ -392,4 +394,60 @@ test('picker details reuse existing dialog and synchronize status changes from a
   assert.equal(app.dom['picker-watched'].disabled, true);
   assert.equal(app.dom['movie-dialog'].open, true);
   assert.equal(app.run('collection.watched[0].rating'), 0);
+});
+
+test('Stats initializes offline with accessible empty states and no catalog DOM or writes', async () => {
+  let calls = 0;
+  const saved = {};
+  const app = boot(async () => { calls++; throw Error('offline'); }, 'stats.html', saved);
+  await tick();
+  assert.equal(calls, 0);
+  assert.equal(app.dom['watched-count'].textContent, 0);
+  assert.equal(app.dom['rated-count'].textContent, 0);
+  assert.equal(app.dom['average-rating'].textContent, '—');
+  assert.match(app.dom['genre-chart'].children[0].textContent, /Mark a movie as watched/);
+  assert.match(app.dom['rating-chart'].children[0].textContent, /No ratings yet/);
+  assert.match(app.dom['highest-rated'].children[0].textContent, /Rate a watched film/);
+  assert.deepEqual(saved, {});
+  const html = fs.readFileSync(path.join(root, 'stats.html'), 'utf8');
+  assert.match(html, /id="stats-update"[^>]*aria-live="polite"/);
+});
+
+test('Stats renders real collection charts and updates ratings/moves across tabs and restored pages', async () => {
+  const original = JSON.stringify({watched:[
+    {id:42,title:'Drama film',genres:['Drama','Comedy'],rating:4.5,year:'1999',poster_path:'/poster.jpg'},
+    {id:43,title:'Unrated film',genres:['Drama'],rating:0,year:'2001'},
+    {id:44,title:'Another film',genres:[],rating:2.5,year:''}
+  ],watchlist:[{id:45,title:'Future watch',genres:['Action']}],favorites:['tmdb:42']});
+  const saved = {'movielist-v2':original};
+  const app = boot(async url => response(url.includes('action=details') ? {...tmdbMovie,genres:[{id:18,name:'Drama'},{id:35,name:'Comedy'}]} : {genres:[]}), 'stats.html', saved);
+  assert.equal(saved['movielist-v2'], original);
+  assert.equal(app.dom['watched-count'].textContent, 3);
+  assert.equal(app.dom['watchlist-count'].textContent, 1);
+  assert.equal(app.dom['rated-count'].textContent, 2);
+  assert.equal(app.dom['average-rating'].textContent, '3.5');
+  const genres = app.dom['genre-chart'].children[0].children;
+  assert.equal(genres[0].children[0].textContent, 'Drama');
+  assert.equal(genres[0].children[2].textContent, '2');
+  assert.equal(genres[0].children[1].attributes['aria-hidden'], 'true');
+  assert.equal(app.dom['rating-chart'].children[0].children.length, 10);
+  assert.match(app.dom['genre-note'].textContent, /1 watched film/);
+  const card = app.dom['highest-rated'].children[0];
+  assert.equal(card.children[1].children[0].textContent, 'Drama film');
+  assert.equal(card.children[1].children[2].textContent, '★ 4.5 / 5');
+  card.children[0].listeners.click(); await tick();
+  app.run('changeRating(activeMovie, 5)');
+  assert.equal(app.dom['movie-dialog'].open, true);
+  assert.equal(app.dom['average-rating'].textContent, '3.8');
+  const other = boot(async () => response({genres:[]}), 'watched.html', saved);
+  other.run("changeStatus(collection.watched[0], 'watchlist')");
+  app.events.storage({key:'movielist-v2'});
+  assert.equal(app.dom['watched-count'].textContent, 2);
+  assert.equal(app.dom['watchlist-count'].textContent, 2);
+  assert.equal(app.dom['rated-count'].textContent, 1);
+  assert.equal(app.dom['average-rating'].textContent, '2.5');
+  saved['movielist-v2'] = JSON.stringify({watched:[],watchlist:[],favorites:[]});
+  app.events.pageshow({persisted:true});
+  assert.equal(app.dom['average-rating'].textContent, '—');
+  assert.match(app.dom['rating-chart'].children[0].textContent, /No ratings yet/);
 });
