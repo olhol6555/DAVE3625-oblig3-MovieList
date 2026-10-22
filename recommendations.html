@@ -1,0 +1,24 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#101719">
+  <title>For You — MovieList</title><link rel="stylesheet" href="style.css">
+  <script src="collection.js" defer></script><script src="recommendations.js" defer></script><script src="script.js" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="index.html">◧ MovieList<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><a href="index.html">Discover</a><a href="watched.html">Watched</a><a href="watchlist.html">Watchlist</a><a href="stats.html">Stats</a><a href="recommendations.html" aria-current="page">For You</a></nav></header>
+  <main>
+    <section class="catalog-hero for-you-hero"><p class="eyebrow">A little closer to your kind of cinema</p><h1>Your next<br>great film<span>.</span></h1><p>Your highest ratings and Top 4 lead the way. Discover stories connected to the films you love.</p><div class="taste-summary"><span id="recommendation-taste"></span><a href="watched.html">Shape your taste →</a></div></section>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <section class="recommendation-preferences" aria-labelledby="preferences-title"><div><h2 id="preferences-title">Set the mood</h2><p>Choose up to three genres. Films must match at least one selected genre; deselect all for your full personalized feed. Your saved films stay unchanged.</p></div><fieldset id="recommendation-genres"><legend class="sr-only">Optional genre preferences</legend><div id="preference-options" class="genre-chips"></div></fieldset></section>
+    <section class="collection" aria-labelledby="recommendation-title"><div class="library-toolbar"><div><p class="eyebrow">Picked from your taste</p><h2 id="recommendation-title">For You</h2></div><div class="recommendation-tools"><button id="reset-recommendation-feedback" class="secondary-button" type="button" disabled>Reset feedback</button><button id="refresh-recommendations" class="button" type="button">↻ Refresh Recommendations</button></div></div><p id="feedback-summary" class="chart-note"></p><p id="recommendation-message" role="status" aria-live="polite"></p><p id="recommendation-error" role="status" aria-live="polite"></p><div id="recommendation-container" class="movie-grid recommendation-grid"></div></section>
+    <section id="credits" class="credits"><h2>About & credits</h2><p>MovieList is a student movie tracking prototype. Your collection is stored only in this browser.</p><a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer"><img class="tmdb-logo" src="https://files.readme.io/29c6fee-blue_short.svg" alt="TMDB" width="100" height="36"></a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></section>
+  </main>
+  <dialog id="favorite-dialog" aria-labelledby="favorite-replace-title"><div class="dialog-top"><button id="cancel-favorite" class="secondary-button" type="button" autofocus>Cancel</button></div><h2 id="favorite-replace-title">Make room in your Top 4</h2><p id="favorite-replace-message"></p><div id="favorite-replacements" class="favorite-replacements"></div></dialog>
+  <dialog id="related-dialog" class="related-dialog" aria-labelledby="related-title"><div class="dialog-top"><button id="related-undo" class="secondary-button" type="button" disabled>Undo last action</button><button id="close-related" class="secondary-button" type="button" autofocus>Back to For You ✕</button></div><section class="collection" aria-labelledby="related-title"><p class="eyebrow">More of what caught your eye</p><h2 id="related-title">Related picks</h2><p id="related-message" role="status" aria-live="polite"></p><p id="related-error" role="status" aria-live="polite"></p><button id="related-retry" class="secondary-button" type="button">Retry related picks</button><div id="related-container" class="movie-grid recommendation-grid"></div></section></dialog>
+  <dialog id="movie-dialog" aria-labelledby="detail-title"><div class="dialog-top"><button id="dialog-undo" class="secondary-button" type="button" disabled>Undo last action</button><button id="close-dialog" class="secondary-button" autofocus>Close ✕</button></div><div id="detail-content"></div></dialog>
+  <aside id="undo-toast" class="undo-toast" aria-label="Undo last action" hidden><p id="undo-message" role="status" aria-live="polite"></p><div><button id="undo-action" class="secondary-button" type="button">Undo</button><button id="dismiss-undo" class="remove-button" type="button">Dismiss</button></div></aside>
+  <footer><a class="brand" href="index.html">MovieList<span class="brand-dot">.</span></a><p>For the films that stay with you.</p><span>Stored on this browser · Powered by TMDB</span></footer>
+</body>
+</html>
+

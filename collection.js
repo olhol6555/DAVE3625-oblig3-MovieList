@@ -25,6 +25,7 @@
       }
     }
     result.favorites = validFavorites(result, data.favorites);
+    if (data.recommendationFeedback) result.recommendationFeedback = feedback(data);
     return result;
   }
   function load(storage) {
@@ -82,6 +83,68 @@
     if (next !== 'neutral') data[next].push({ ...movie, ...(previous || {}), rating: next === 'watched' && previousStatus === 'watched' ? rating(previous.rating) : 0 });
     data.favorites = validFavorites(data);
   }
+  function statusStamp(data, movie) {
+    return JSON.stringify([status(data, movie), find(data, movie)?.rating || 0, isFavorite(data, movie)]);
+  }
+  function changeStatusWithUndo(data, movie, next) {
+    const previous = find(data, movie);
+    const token = { movie: { ...movie }, previous: previous ? { ...previous, genres: [...(previous.genres || [])] } : null,
+      previousStatus: status(data, movie), index: previous ? data[status(data, movie)].indexOf(previous) : -1,
+      favoriteIndex: validFavorites(data).indexOf(identity(movie)) };
+    setStatus(data, movie, next);
+    token.after = statusStamp(data, movie);
+    return token;
+  }
+  function undoStatus(data, token) {
+    if (!token || statusStamp(data, token.movie) !== token.after) return false;
+    const refs = validFavorites(data).filter(ref => ref !== identity(token.movie));
+    if (token.favoriteIndex >= 0 && refs.length >= 4) return false;
+    const latest = find(data, token.movie);
+    setStatus(data, token.movie, 'neutral');
+    if (token.previous) {
+      // Keep newly fetched metadata, but restore the original status, rating and order.
+      const restored = { ...token.previous, ...(latest || {}), rating: token.previous.rating };
+      data[token.previousStatus].splice(Math.min(token.index, data[token.previousStatus].length), 0, restored);
+    }
+    if (token.favoriteIndex >= 0) refs.splice(Math.min(token.favoriteIndex, refs.length), 0, identity(token.movie));
+    data.favorites = validFavorites(data, refs);
+    return true;
+  }
+  function feedback(data) {
+    const raw = data.recommendationFeedback || {};
+    const dismissed = [...new Set((Array.isArray(raw.dismissed) ? raw.dismissed : []).filter(isTmdbId))];
+    const seen = new Set();
+    const moreLike = (Array.isArray(raw.moreLike) ? raw.moreLike : []).map(clean).filter(movie => {
+      if (!movie?.tmdbId || dismissed.includes(movie.tmdbId) || seen.has(movie.tmdbId)) return false;
+      seen.add(movie.tmdbId); movie.rating = 0; return true;
+    });
+    return { dismissed, moreLike };
+  }
+  function feedbackState(data, movie) {
+    const value = feedback(data);
+    return value.dismissed.includes(movie.tmdbId) ? 'dismissed' : value.moreLike.some(item => item.tmdbId === movie.tmdbId) ? 'moreLike' : 'neutral';
+  }
+  function setFeedback(data, movie, next) {
+    if (!isTmdbId(movie.tmdbId) || !['dismissed', 'moreLike', 'neutral'].includes(next)) return null;
+    const value = feedback(data), previous = feedbackState(data, movie);
+    const index = value.moreLike.findIndex(item => item.tmdbId === movie.tmdbId);
+    const token = { movie: { ...(index >= 0 ? value.moreLike[index] : movie) }, previous, index, after: next };
+    value.dismissed = value.dismissed.filter(id => id !== movie.tmdbId);
+    value.moreLike = value.moreLike.filter(item => item.tmdbId !== movie.tmdbId);
+    if (next === 'dismissed') value.dismissed.push(movie.tmdbId);
+    if (next === 'moreLike') value.moreLike.unshift({ ...clean(movie, 0), rating: 0 });
+    data.recommendationFeedback = value;
+    return token;
+  }
+  function undoFeedback(data, token) {
+    if (!token || feedbackState(data, token.movie) !== token.after) return false;
+    setFeedback(data, token.movie, token.previous);
+    if (token.previous === 'moreLike') {
+      const list = data.recommendationFeedback.moreLike;
+      const restored = list.shift(); list.splice(Math.min(token.index, list.length), 0, restored);
+    }
+    return true;
+  }
   // Linking is explicit: a title match alone must never merge unrelated remakes.
   function link(data, legacy, tmdb) {
     const old = find(data, legacy);
@@ -131,7 +194,7 @@
       highestRated: [...rated].sort((a, b) => b.rating - a.rating || a.title.localeCompare(b.title)).slice(0, 8)
     };
   }
-  const api = { KEY, rating, load, normalize, status, find, setStatus, link, identity, favorites, isFavorite, toggleFavorite, replaceFavorite, moveFavorite, pickRandom, statistics };
+  const api = { KEY, rating, load, normalize, status, find, setStatus, link, identity, favorites, isFavorite, toggleFavorite, replaceFavorite, moveFavorite, pickRandom, statistics, changeStatusWithUndo, undoStatus, feedback, feedbackState, setFeedback, undoFeedback };
   if (typeof module !== 'undefined') module.exports = api;
   else root.MovieCollection = api;
 })(globalThis);

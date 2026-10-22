@@ -6,7 +6,7 @@
   <script src="collection.js" defer></script><script src="script.js" defer></script>
 </head>
 <body>
-  <header class="site-header"><a class="brand" href="index.html">◧ MovieList<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><a href="index.html">Discover</a><a href="watched.html">Watched</a><a href="watchlist.html">Watchlist</a><a href="stats.html" aria-current="page">Stats</a></nav></header>
+  <header class="site-header"><a class="brand" href="index.html">◧ MovieList<span class="brand-dot">.</span></a><nav aria-label="Main navigation"><a href="index.html">Discover</a><a href="watched.html">Watched</a><a href="watchlist.html">Watchlist</a><a href="stats.html" aria-current="page">Stats</a><a href="recommendations.html">For You</a></nav></header>
   <main>
     <section class="catalog-hero stats-hero"><p class="eyebrow">Your taste, in perspective</p><h1>A life in<br>film<span>.</span></h1><p>Your collection tells a story. Explore the genres you return to, the films you love, and the ratings that make it yours.</p><a class="secondary-button" href="watched.html">View watched films →</a></section>
     <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -26,7 +26,8 @@
     <section id="credits" class="credits"><h2>About & credits</h2><p>MovieList is a student movie tracking prototype. Your collection is stored only in this browser.</p><a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer"><img class="tmdb-logo" src="https://files.readme.io/29c6fee-blue_short.svg" alt="TMDB" width="100" height="36"></a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></section>
   </main>
   <dialog id="favorite-dialog" aria-labelledby="favorite-replace-title"><div class="dialog-top"><button id="cancel-favorite" class="secondary-button" type="button" autofocus>Cancel</button></div><h2 id="favorite-replace-title">Make room in your Top 4</h2><p id="favorite-replace-message"></p><div id="favorite-replacements" class="favorite-replacements"></div></dialog>
-  <dialog id="movie-dialog" aria-labelledby="detail-title"><div class="dialog-top"><button id="close-dialog" class="secondary-button" autofocus>Close ✕</button></div><div id="detail-content"></div></dialog>
+  <dialog id="movie-dialog" aria-labelledby="detail-title"><div class="dialog-top"><button id="dialog-undo" class="secondary-button" type="button" disabled>Undo last action</button><button id="close-dialog" class="secondary-button" autofocus>Close ✕</button></div><div id="detail-content"></div></dialog>
+  <aside id="undo-toast" class="undo-toast" aria-label="Undo last action" hidden><p id="undo-message" role="status" aria-live="polite"></p><div><button id="undo-action" class="secondary-button" type="button">Undo</button><button id="dismiss-undo" class="remove-button" type="button">Dismiss</button></div></aside>
   <footer><a class="brand" href="index.html">MovieList<span class="brand-dot">.</span></a><p>For the films that stay with you.</p><span>Stored on this browser · Powered by TMDB</span></footer>
 </body>
 </html>

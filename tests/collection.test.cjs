@@ -116,3 +116,66 @@ test('random picker handles empty/single lists, uses the full watchlist and avoi
   assert.equal(Store.status(data, picked), 'watched');
   assert.equal(Store.find(data, picked).rating, 0);
 });
+
+test('status undo restores rating, collection order and favorite slot while retaining unrelated edits',()=>{
+ const data=Store.normalize({watched:[film(1),film(2),film(3)],watchlist:[film(4)],favorites:['tmdb:1','tmdb:2']});
+ data.watched[0].rating=4.5;
+ const token=Store.changeStatusWithUndo(data,data.watched[0],'watchlist');
+ assert.equal(data.watchlist.at(-1).rating,0);
+ assert.deepEqual(data.favorites,['tmdb:2']);
+ data.watched[0].rating=2.5;
+ Store.setStatus(data,film(5),'watchlist');
+ assert.equal(Store.undoStatus(data,token),true);
+ assert.deepEqual(data.watched.map(movie=>movie.tmdbId),[1,2,3]);
+ assert.equal(data.watched[0].rating,4.5);
+ assert.equal(data.watched[1].rating,2.5);
+ assert.deepEqual(data.favorites,['tmdb:1','tmdb:2']);
+ assert.deepEqual(data.watchlist.map(movie=>movie.tmdbId),[4,5]);
+});
+
+test('status undo supports additions/removals and refuses to overwrite newer target changes',()=>{
+ const data=Store.normalize({watched:[],watchlist:[film(1),film(2)]});
+ const removed=Store.changeStatusWithUndo(data,data.watchlist[0],'neutral');
+ assert.equal(Store.undoStatus(data,removed),true);
+ assert.deepEqual(data.watchlist.map(movie=>movie.tmdbId),[1,2]);
+ const added=Store.changeStatusWithUndo(data,film(3),'watched');
+ assert.equal(Store.undoStatus(data,added),true);
+ assert.equal(Store.status(data,film(3)),'neutral');
+ const changed=Store.changeStatusWithUndo(data,film(1),'watched');
+ Store.find(data,film(1)).rating=5;
+ assert.equal(Store.undoStatus(data,changed),false);
+ assert.equal(Store.find(data,film(1)).rating,5);
+});
+
+test('undo never displaces a newer favorite when all Top 4 slots are filled',()=>{
+ const data=Store.normalize({watched:[1,2,3,4,5].map(film),watchlist:[],favorites:['tmdb:1','tmdb:2','tmdb:3','tmdb:4']});
+ const token=Store.changeStatusWithUndo(data,film(1),'watchlist');
+ Store.toggleFavorite(data,film(5));
+ const before=JSON.stringify(data);
+ assert.equal(Store.undoStatus(data,token),false);
+ assert.equal(JSON.stringify(data),before);
+});
+
+test('recommendation feedback persists separately from ratings and supports reversible exclusive states',()=>{
+ const data=Store.normalize({watched:[film(1)],watchlist:[film(2)],favorites:['tmdb:1']});
+ const original=JSON.stringify({watched:data.watched,watchlist:data.watchlist,favorites:data.favorites});
+ Store.setFeedback(data,film(2),'moreLike');
+ Store.setFeedback(data,film(3),'moreLike');
+ assert.equal(Store.feedbackState(data,film(2)),'moreLike');
+ const hidden=Store.setFeedback(data,film(2),'dismissed');
+ assert.equal(Store.feedbackState(data,film(2)),'dismissed');
+ assert.equal(Store.feedback(data).moreLike.length,1);
+ assert.equal(Store.undoFeedback(data,hidden),true);
+ assert.deepEqual(Store.feedback(data).moreLike.map(movie=>movie.tmdbId),[3,2]);
+ const loaded=Store.load(storage({[Store.KEY]:JSON.stringify(data)}));
+ assert.deepEqual(loaded,data);
+ assert.equal(JSON.stringify({watched:data.watched,watchlist:data.watchlist,favorites:data.favorites}),original);
+ assert.equal(Store.setFeedback(data,{title:'Legacy',tmdbId:null},'moreLike'),null);
+});
+
+test('feedback normalization removes invalid entries without losing existing personal data',()=>{
+ const data=Store.normalize({watched:[film(1)],watchlist:[],recommendationFeedback:{dismissed:[2,2,-1,'3'],moreLike:[film(2),film(3),film(3),{title:'No ID'}]}});
+ assert.deepEqual(data.recommendationFeedback.dismissed,[2]);
+ assert.deepEqual(data.recommendationFeedback.moreLike.map(movie=>movie.tmdbId),[3]);
+ assert.equal(data.watched[0].rating,4);
+});
