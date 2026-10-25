@@ -133,3 +133,49 @@ test('real browser More like this shows immediate related picks, loading and Und
   fs.rmSync(temp,{recursive:true,force:true,maxRetries:5,retryDelay:200});
  }
 });
+
+test('real browser person profiles work at mobile width and return films to existing details', {skip: !chrome && 'Chrome/Chromium is not installed'},()=>{
+ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'movielist-people-browser-'));
+ try {
+  let html=fs.readFileSync(path.join(root,'index.html'),'utf8').replace(/(?:href|src)="(style.css|collection.js|script.js)"/g,(match,file)=>match.replace(file,pathToFileURL(path.join(root,file)).href));
+  html=html.replace('</head>',`<script>
+   localStorage.setItem('movielist-v2',JSON.stringify({watched:[],watchlist:[]}));
+   const film={id:42,title:'Profile film',release_date:'2001-01-01',genre_ids:[18]};
+   const person={id:7,name:'Test Person',character:'Hero'};
+   window.fetch=async url=>{const action=new URL(url,location.href).searchParams.get('action');return {ok:true,json:async()=>action==='details'?{...film,credits:{cast:[person],crew:[{...person,job:'Director'}]}}:action==='person'?{...person,biography:'Test biography'}:action==='personCredits'?{cast:[film,film],crew:[{...film,job:'Director'}]}:{results:[film],genres:[],total_pages:1}}};
+  </script></head>`);
+  html=html.replace('</body>',`<script>
+   addEventListener('load',async()=>{
+    const failures=[],pause=()=>new Promise(resolve=>setTimeout(resolve,30));
+    const check=(condition,message)=>{if(!condition)throw Error(message)};
+    try {
+     await pause();document.querySelector('#catalog-container .movie-open').click();await pause();
+     document.querySelector('.person-link').click();await pause();
+     check(document.getElementById('person-dialog').matches(':modal'),'Person is not the active modal');
+     check(document.querySelectorAll('.filmography').length===2,'Acting/directing sections missing');
+     check(document.querySelectorAll('.person-films .movie-card').length===2,'Credits were not deduplicated');
+     const dialog=document.getElementById('person-dialog');check(dialog.scrollWidth<=dialog.clientWidth+1,'Profile overflows mobile width');
+     document.querySelector('.person-films .action-watched').click();await pause();
+     check([...document.querySelectorAll('.filmography>.chart-note')].every(node=>node.textContent.startsWith('1 of 1')),'Counts did not synchronize');
+     check([...document.querySelectorAll('.person-films .movie-card')].every(node=>node.dataset.watched==='true'),'Watched highlights missing');
+     document.querySelector('.person-films .movie-open').click();await pause();
+     check(!dialog.open&&document.getElementById('movie-dialog').matches(':modal'),'Film did not open existing movie dialog');
+     check(collection.watched.length===1,'Duplicate saved movie');
+     document.querySelector('.person-link').click();await pause();document.getElementById('close-person').click();await pause();
+     check(document.getElementById('movie-dialog').matches(':modal'),'Close did not return to movie');
+    }catch(error){failures.push(error.stack||error.message)}
+    parent.postMessage({failures},'*');
+   });
+  </script></body>`);
+  fs.writeFileSync(path.join(temp,'fixture.html'),html);
+  fs.writeFileSync(path.join(temp,'test.html'),`<html><body><pre id="people-result">pending</pre><script>addEventListener('message',event=>document.getElementById('people-result').textContent=JSON.stringify(event.data));</script><iframe src="fixture.html" style="width:375px;height:900px;border:0"></iframe></body></html>`);
+  const output=execFileSync(chrome,['--headless=new','--disable-gpu','--no-first-run','--disable-background-networking','--user-data-dir='+path.join(temp,'profile'),'--dump-dom','--virtual-time-budget=5000',pathToFileURL(path.join(temp,'test.html')).href],{encoding:'utf8',timeout:45000,maxBuffer:4*1024*1024,stdio:['ignore','pipe','pipe']});
+  const value=output.match(/<pre id="people-result">([\s\S]*?)<\/pre>/)?.[1];
+  assert.ok(value&&value!=='pending','Person fixture must complete');
+  const result=JSON.parse(value.replaceAll('&amp;','&').replaceAll('&lt;','<').replaceAll('&gt;','>'));
+  assert.deepEqual(result.failures,[],result.failures.join('; '));
+ }finally{
+  if(path.dirname(path.resolve(temp))!==path.resolve(os.tmpdir())||!path.basename(temp).startsWith('movielist-people-browser-'))throw Error('Unsafe cleanup path');
+  fs.rmSync(temp,{recursive:true,force:true,maxRetries:5,retryDelay:200});
+ }
+});

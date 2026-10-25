@@ -71,7 +71,11 @@
     const candidates = movies.length > 1 ? movies.filter(movie => !previous || identity(movie) !== identity(previous)) : movies;
     return candidates[Math.floor(random() * candidates.length)];
   }
-  function same(a, b) { return a.tmdbId && b.tmdbId ? a.tmdbId === b.tmdbId : a.id === b.id; }
+  function same(a, b) {
+    // Match legacy films by identity rather than a reused positional ID.
+    if (!a.tmdbId && !b.tmdbId && !isTmdbId(a.id) && !isTmdbId(b.id)) return identity(a) === identity(b);
+    return a.tmdbId && b.tmdbId ? a.tmdbId === b.tmdbId : a.id === b.id;
+  }
   function status(data, movie) { return ['watched', 'watchlist'].find(list => data[list].some(item => same(item, movie))) || 'neutral'; }
   function find(data, movie) { return [...data.watched, ...data.watchlist].find(item => same(item, movie)); }
   function setStatus(data, movie, next) {

@@ -774,11 +774,90 @@ test('More like this opens labelled results and publishes its first endpoint bef
  assert.ok(!app.dom['recommendation-container'].children.some(card=>card.movieKey==='tmdb:100'));
 });
 
-test('related source failures show a targeted retry message while preserving the feedback',async()=>{
+test('related source failures show an error while preserving the feedback',async()=>{
  const saved={'movielist-v2':JSON.stringify({watched:[],watchlist:[],recommendationFeedback:{dismissed:[],moreLike:[]}})};
  const app=boot(async url=>response(new URL(url,'http://localhost').searchParams.get('id')==='42'?{error:'unavailable'}:{results:[]},new URL(url,'http://localhost').searchParams.get('id')!=='42'),'recommendations.html',saved);
  app.run("changeRecommendationFeedback({id:42,tmdbId:42,title:'Interstellar',genres:['Drama']},'moreLike')");await tick();
  assert.match(app.dom['related-message'].textContent,/could not be loaded/);
- assert.equal(app.dom['related-retry'].disabled,false);
+ assert.equal(app.dom['related-retry'],undefined);
  assert.equal(app.run('Store.feedback(collection).moreLike[0].tmdbId'),42);
+});
+
+test('people profiles separate and deduplicate credits, update watched counts and reuse movie details', async () => {
+ const saved={'movielist-v2':JSON.stringify({watched:[{id:42,title:'Saved film',rating:4.5,genres:[]}],watchlist:[]})};
+ const person={id:7,name:'A Person',profile_path:'/face.jpg'};
+ const app=boot(async url=>{
+  const action=new URL(url,'http://localhost').searchParams.get('action');
+  if(action==='person')return response({...person,biography:'A biography.'});
+  if(action==='personCredits')return response({cast:[tmdbMovie,tmdbMovie,{...tmdbMovie,id:43}],crew:[{...tmdbMovie,job:'Director'},{...tmdbMovie,id:99,job:'Producer'}]});
+  if(action==='details')return response({...tmdbMovie,credits:{cast:[{...person,character:'Hero'}],crew:[{...person,job:'Director'}]}});
+  return response({genres:[],results:[]});
+ },'watched.html',saved);
+ await app.run('openDetails(collection.watched[0])');await tick();
+ assert.equal(app.run('activeMovie.credits.cast[0].character'),'Hero');
+ await app.run('openPerson(activeMovie.credits.cast[0])');
+ assert.equal(app.dom['person-dialog'].open,true);
+ assert.equal(app.run('activePerson.sections[0].movies.length'),2);
+ assert.equal(app.run('activePerson.sections[1].movies.length'),1);
+ assert.match(app.run('activePerson.sections[0].countNode.textContent'),/^1 of 2/);
+ assert.equal(app.run('activePerson.sections[0].gridNode.children[0].attributes["data-watched"]'),'true');
+ app.run("changeStatus(activePerson.sections[0].movies[1], 'watched')");
+ assert.match(app.run('activePerson.sections[0].countNode.textContent'),/^2 of 2/);
+ app.run("changeStatus(activePerson.sections[1].movies[0], 'watched')");
+ assert.equal(app.run('collection.watched.length'),2);
+ assert.equal(app.run('collection.watched.find(movie => movie.tmdbId === 42).rating'),4.5);
+ app.run('activePerson.sections[0].gridNode.children[0].children[0].listeners.click()');await tick();
+ assert.equal(app.dom['person-dialog'].open,false);
+ assert.equal(app.dom['movie-dialog'].open,true);
+ assert.equal(app.run('activeMovie.tmdbId'),42);
+});
+
+test('person failures preserve available biography, allow retry and ignore responses after close',async()=>{
+ let fail=true;
+ const app=boot(async url=>{
+  const action=new URL(url,'http://localhost').searchParams.get('action');
+  if(action==='person')return response({id:7,name:'Person',biography:''});
+  if(action==='personCredits')return response(fail?{error:'Unavailable'}:{cast:[],crew:[]},!fail);
+  return response({genres:[],results:[]});
+ });
+ await app.run('openPerson({id:7,name:"Person"})');
+ assert.match(app.dom['person-content'].children[0].children[1].children[1].textContent,/Biography unavailable/);
+ assert.ok(app.dom['person-content'].children.some(node=>node.textContent==='Retry profile'));
+ fail=false;await app.run('openPerson(activePerson)');
+ assert.equal(app.run('activePerson.sections[0].movies.length'),0);
+ let finish;
+ const stale=boot(url=>new URL(url,'http://localhost').searchParams.get('action')==='person'?new Promise(resolve=>{finish=resolve}):Promise.resolve(response({cast:[],crew:[],genres:[],results:[]})));
+ const pending=stale.run('openPerson({id:7,name:"Person"})');
+ stale.dom['person-dialog'].close();finish(response({id:7,name:'Late'}));await pending;
+ assert.equal(stale.run('activePerson'),null);
+ assert.equal(stale.dom['person-dialog'].open,false);
+});
+
+
+test('old optional metadata does not change initialization, ratings or existing Undo flows',async()=>{
+ const raw={watched:[{...tmdbMovie,tmdbId:42,rating:4.5,watchedDate:'2020-01-01',ratedAt:'old',ratingUpdatedAt:null}],watchlist:[],favorites:['tmdb:42'],recommendationFeedback:{dismissed:[99],moreLike:[]},activity:[{type:'watched',at:'old'}]};
+ for(const page of ['index.html','watched.html','watchlist.html','stats.html','recommendations.html']){
+  const saved={'movielist-v2':JSON.stringify(raw)},before=saved['movielist-v2'];
+  const app=boot(async()=>response({genres:[],results:[]} ),page,saved);await tick();
+  assert.equal(saved['movielist-v2'],before,'initialization must not rewrite storage');
+  assert.equal(app.run('collection.watched[0].rating'),4.5);assert.equal(app.run('collection.favorites[0]'),'tmdb:42');
+  app.run("changeStatus(collection.watched[0],'watchlist')");app.dom['undo-action'].listeners.click();
+  assert.equal(app.run('collection.watched[0].rating'),4.5);assert.equal(app.run('collection.favorites[0]'),'tmdb:42');
+  app.run('changeRating(collection.watched[0],3.5)');
+  assert.equal(JSON.parse(saved['movielist-v2']).watched[0].rating,3.5);
+  assert.equal(JSON.parse(saved['movielist-v2']).recommendationFeedback.dismissed[0],99);
+ }
+});
+
+test('unreadable storage is never overwritten and failed writes preserve the last saved collection',async()=>{
+ const damaged={'movielist-v2':'{unreadable'};
+ const app=boot(async()=>response({genres:[],results:[tmdbMovie],total_pages:1}),'index.html',damaged);await tick();
+ app.run("changeStatus(catalog[0],'watched')");
+ assert.equal(damaged['movielist-v2'],'{unreadable');assert.match(app.dom.status.textContent,/left untouched/);
+ const original=JSON.stringify({watched:[{...tmdbMovie,tmdbId:42,rating:4.5}],watchlist:[],favorites:['tmdb:42']});
+ damaged['movielist-v2']=original;app.events.storage({key:'movielist-v2'});
+ assert.equal(app.run('collection.watched[0].rating'),4.5);assert.equal(app.run('storageLocked'),false);
+ app.run('localStorage.setItem = () => { throw Error("Quota exceeded"); }');app.run('changeRating(collection.watched[0], 2)');
+ assert.equal(damaged['movielist-v2'],original);assert.equal(app.run('collection.watched[0].rating'),2);assert.match(app.dom.status.textContent,/could not be saved/);
+ app.run('refreshCollection()');assert.equal(app.run('collection.watched[0].rating'),4.5);assert.equal(app.run('collection.favorites[0]'),'tmdb:42');
 });

@@ -401,9 +401,8 @@ function renderRelatedPicks(taste) {
   const ranked = MovieRecommendations.rank(collection, taste, batches, 8);
   syncCards($('related-container'), ranked.map(movie => ({...fromTmdb(movie), recommendationReason: movie.recommendationReason})));
   $('related-container').setAttribute('aria-busy', String(!!loading));
-  $('related-message').textContent = loading ? ranked.length ? 'Related picks are ready. Checking the remaining movie source…' : 'Finding films connected to ' + relatedFocus.title + '…' : ranked.length ? ranked.length + ' related picks · boosted in your For You feed. Your selected mood still applies.' : progress?.failed ? 'Related films could not be loaded. Try again; your feedback is saved.' : 'No unseen related films match your current mood. Try clearing a mood filter or choosing another film.';
-  $('related-error').textContent = progress?.failed && ranked.length ? 'One related-movie source is unavailable. Showing the other source’s picks.' : '';
-  $('related-retry').disabled = !!loading;
+  $('related-message').textContent = loading ? ranked.length ? 'Related picks are ready. Checking the remaining movie source…' : 'Finding films connected to ' + relatedFocus.title + '…' : ranked.length ? ranked.length + ' related picks · boosted in your For You feed. Your selected mood still applies.' : progress?.failed ? 'Related films could not be loaded. Your feedback is saved.' : 'No unseen related films match your current mood. Try clearing a mood filter or choosing another film.';
+  $('related-error').textContent = progress?.failed && !loading ? 'A related-movie source could not be loaded. Available picks are kept.' : '';
   if (!ranked.length) $('related-container').append(element('p', 'empty-state', loading ? 'Your related picks are on their way.' : 'Watched and hidden films stay excluded.'));
 }
 async function loadRecommendations() {
@@ -502,6 +501,7 @@ function render() {
   renderFavorites();
   renderPicker();
   if (activeMovie) updateControlsWithin($('detail-content'));
+  if (activePerson) updatePersonCollection();
 }
 function catalogYearParameters() {
   const period = $('catalog-period')?.value || '';
@@ -586,6 +586,8 @@ function searchCatalog() {
   mode = searchQuery ? 'search' : 'popular';
   loadCatalog(true);
 }
+let activePerson = null, personRequest = 0;
+const personCache = new Map();
 let detailError = '';
 function renderDetails() {
   if (!activeMovie) return;
@@ -603,6 +605,7 @@ function renderDetails() {
     if (movie.tmdbId) body.append(button('Retry details', () => fetchDetails(movie)));
   }
   if (!movie.tmdbId) body.append(button('Find in TMDB', () => { $('movie-dialog').close(); beginLink(movie); }));
+  if (movie.tmdbId) body.append(moviePeople(movie.credits));
   layout.append(poster(movie, false), body);
   content.replaceChildren(layout);
 }
@@ -611,7 +614,11 @@ async function fetchDetails(movie) {
   detailError = 'Loading full movie details…';
   renderDetails();
   try {
-    const data = detailCache.get(movie.tmdbId) || fromTmdb(await api('details', { id: String(movie.tmdbId) }));
+    let data = detailCache.get(movie.tmdbId);
+    if (!data) {
+      const raw = await api('details', { id: String(movie.tmdbId) });
+      data = { ...fromTmdb(raw), credits: raw.credits || {} };
+    }
     detailCache.set(movie.tmdbId, data);
     if (current !== detailRequest || !activeMovie) return;
     activeMovie = data;
@@ -619,7 +626,8 @@ async function fetchDetails(movie) {
     // Keep enriched metadata in already saved entries without changing rating or status.
     const saved = Store.find(collection, data);
     if (saved) {
-      Object.assign(saved, data, { rating: saved.rating });
+      const { credits, ...metadata } = data;
+      Object.assign(saved, metadata, { rating: saved.rating });
       persist(`Details loaded for ${data.title}.`);
     }
   } catch (error) {
@@ -629,6 +637,7 @@ async function fetchDetails(movie) {
   renderDetails();
 }
 function openDetails(movie) {
+  if ($('person-dialog').open) $('person-dialog').close();
   activeMovie = movie;
   detailError = movie.tmdbId ? '' : 'This entry was saved before TMDB integration. Link it to a catalog film to add its real poster and details.';
   renderDetails();
@@ -773,7 +782,6 @@ $('undo-action')?.addEventListener('click', undoLastAction);
 $('dialog-undo')?.addEventListener('click', undoLastAction);
 $('related-undo')?.addEventListener('click', undoLastAction);
 $('close-related')?.addEventListener('click', () => $('related-dialog').close());
-$('related-retry')?.addEventListener('click', loadRecommendations);
 $('dismiss-undo')?.addEventListener('click', clearUndo);
 updateUndoUI();
 setupRecommendationPreferences();
@@ -817,3 +825,94 @@ window.addEventListener('pageshow', event => {
     loadCatalog(true);
   }
 });
+function personPicture(person) {
+  const box = element('div', 'person-picture', 'Photo unavailable');
+  if (typeof person.profile_path === 'string' && /^\/[a-zA-Z0-9._-]+$/.test(person.profile_path)) {
+    const img = document.createElement('img');
+    img.alt = person.name || 'Person'; img.loading = 'lazy';
+    img.src = `https://image.tmdb.org/t/p/w185${person.profile_path}`;
+    img.addEventListener('error', () => img.remove()); box.append(img);
+  }
+  return box;
+}
+function uniqueCredits(items) {
+  return [...new Map((Array.isArray(items) ? items : []).filter(item => /^[1-9]\d{0,9}$/.test(String(item.id)) && !item.adult).map(item => [item.id, item])).values()];
+}
+function moviePeople(credits = {}) {
+  const section = element('section', 'movie-people');
+  section.append(element('h3', '', 'Cast & crew'));
+  for (const [label, people] of [
+    ['Director', uniqueCredits((credits.crew || []).filter(person => person.job === 'Director'))],
+    ['Main cast', uniqueCredits(credits.cast).sort((a, b) => (a.order ?? 999) - (b.order ?? 999)).slice(0, 12)]
+  ]) {
+    section.append(element('h4', '', label));
+    const list = element('div', 'people-list');
+    for (const person of people) {
+      const link = button('', () => openPerson(person), 'person-link');
+      link.append(personPicture(person), element('strong', '', person.name || 'Unknown person'), element('span', '', label === 'Director' ? 'Director' : person.character || 'Character unavailable'));
+      list.append(link);
+    }
+    if (!people.length) list.append(element('p', 'chart-note', 'Information unavailable.'));
+    section.append(list);
+  }
+  return section;
+}
+async function openPerson(person) {
+  if (!/^[1-9]\d{0,9}$/.test(String(person.id))) return;
+  const current = ++personRequest;
+  activePerson = { ...person, sections: [] };
+  renderPerson('Loading profile and filmography…');
+  if (!$('person-dialog').open) $('person-dialog').showModal();
+  // Independent results let a biography survive a filmography failure and vice versa.
+  const cached = personCache.get(person.id);
+  const results = cached || await Promise.allSettled([api('person', { id: String(person.id) }), api('personCredits', { id: String(person.id) })]);
+  if (current !== personRequest || !activePerson) return;
+  if (results.every(result => result.status === 'fulfilled')) personCache.set(person.id, results);
+  const details = results[0].status === 'fulfilled' ? results[0].value : {};
+  const credits = results[1].status === 'fulfilled' ? results[1].value : {};
+  const ranked = items => uniqueCredits(items).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).map(fromTmdb);
+  activePerson = { ...person, ...details, sections: [
+    { label: 'Acting credits', movies: ranked(credits.cast) },
+    { label: 'Directing credits', movies: ranked((credits.crew || []).filter(credit => credit.job === 'Director')) }
+  ] };
+  renderPerson(results.some(result => result.status === 'rejected') ? 'Some profile information could not be loaded. Please try again.' : '');
+}
+function renderPerson(message = '') {
+  const person = activePerson;
+  if (!person) return;
+  const content = $('person-content');
+  const header = element('div', 'person-header');
+  const bio = element('div');
+  const title = element('h2', '', person.name || 'Unknown person'); title.id = 'person-title';
+  bio.append(title, element('p', 'person-biography', person.biography?.trim() || 'Biography unavailable.'));
+  header.append(personPicture(person), bio);
+  content.replaceChildren(header);
+  if (message) {
+    const status = element('p', 'chart-note', message); status.setAttribute('role', 'status'); content.append(status);
+    if (message.includes('could not')) content.append(button('Retry profile', () => openPerson(person)));
+  }
+  for (const section of person.sections) {
+    const box = element('section', 'filmography');
+    const count = element('p', 'chart-note'); count.setAttribute('aria-live', 'polite');
+    const grid = element('div', 'movie-grid person-films');
+    section.countNode = count; section.gridNode = grid;
+    box.append(element('h3', '', section.label), count, grid);
+    content.append(box);
+    syncCards(grid, section.movies);
+    if (!section.movies.length) grid.append(element('p', 'chart-note', 'No movie credits available.'));
+  }
+  updatePersonCollection();
+}
+function updatePersonCollection() {
+  for (const section of activePerson.sections) {
+    const count = section.movies.filter(movie => Store.status(collection, movie) === 'watched').length;
+    section.countNode.textContent = `${count} of ${section.movies.length} films in your Watched collection · Most popular first`;
+    updateControlsWithin(section.gridNode);
+    for (const node of section.gridNode.children) {
+      const movie = section.movies.find(movie => node.movieKey === 'tmdb:' + movie.tmdbId);
+      if (movie) node.setAttribute('data-watched', String(Store.status(collection, movie) === 'watched'));
+    }
+  }
+}
+$('close-person').addEventListener('click', () => $('person-dialog').close());
+$('person-dialog').addEventListener('close', () => { activePerson = null; personRequest++; });

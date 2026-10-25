@@ -179,3 +179,18 @@ test('feedback normalization removes invalid entries without losing existing per
  assert.deepEqual(data.recommendationFeedback.moreLike.map(movie=>movie.tmdbId),[3]);
  assert.equal(data.watched[0].rating,4);
 });
+
+
+test('collections with retired metadata retain movies, ratings, favorites and feedback through reload and Undo',()=>{
+ const retired={watchedDate:'2020-01-01',ratedAt:'invalid old timestamp',ratingUpdatedAt:{unexpected:true}};
+ const raw={watched:[{...film(1),...retired},{...film(2),watchedDate:null}],watchlist:[{...film(3),...retired}],favorites:['tmdb:1'],recommendationFeedback:{dismissed:[99],moreLike:[film(4)]},activity:[null,{type:'rated',at:'invalid',movie:film(1)}]};
+ const serialized=JSON.stringify(raw),data=Store.load(storage({[Store.KEY]:serialized}));
+ const expected=Store.normalize({watched:[film(1),film(2)],watchlist:[film(3)],favorites:['tmdb:1'],recommendationFeedback:raw.recommendationFeedback});
+ assert.deepEqual(data,expected);assert.equal(JSON.stringify(raw),serialized);
+ const beforeStats=Store.statistics(data);
+ const token=Store.changeStatusWithUndo(data,film(1),'watchlist');assert.equal(Store.undoStatus(data,token),true);
+ assert.deepEqual(Store.statistics(data),beforeStats);assert.deepEqual(data.favorites,['tmdb:1']);
+ const feedback=Store.setFeedback(data,film(4),'dismissed');assert.equal(Store.undoFeedback(data,feedback),true);
+ assert.deepEqual(Store.feedback(data),Store.feedback(expected));
+ const reloaded=Store.load(storage({[Store.KEY]:JSON.stringify(data)}));assert.deepEqual(reloaded,expected);
+});

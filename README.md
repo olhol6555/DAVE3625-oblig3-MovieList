@@ -11,6 +11,7 @@ Movie collections are saved locally in the browser using `localStorage`. No acco
 ## Features
 
 - **Discover:** Search for films and browse by genre, release period and popularity or ratings.
+- **Cast & crew:** Open directors and main cast from movie details. Profiles include biographies and separate acting/directing filmographies, watched counts, and direct Watched/Watchlist controls. Missing TMDB information has fallbacks.
 - **Watched:** Track watched films, rate them in half-star increments and undo status changes.
 - **Watchlist:** Save films to watch later and move them to Watched.
 - **My Top 4:** Choose and arrange four favorite watched films.
@@ -36,7 +37,7 @@ HTML, CSS, vanilla JavaScript, the TMDB API and Netlify Functions. Movie data an
    ```
 5. Open [http://localhost:8888](http://localhost:8888/) or the address shown in the terminal.
 
-Never commit `.env` or expose API credentials in frontend files. The TMDB token is used only by the server-side function. Opening `index.html` directly will not run that function.
+Never commit `.env` or expose API credentials in frontend files. The TMDB token is used only by the server-side function. Movie details append fixed `credits`; the only person routes are validated `person` (`/person/:id`) and `personCredits` (`/person/:id/movie_credits`) actions. Opening `index.html` directly will not run that function.
 
 ## Deployment
 

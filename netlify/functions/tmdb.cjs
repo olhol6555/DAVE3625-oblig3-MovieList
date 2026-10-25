@@ -6,8 +6,9 @@ exports.handler = async event => {
   if (!/^\d+$/.test(page) || Number(page) < 1 || Number(page) > 500) return reply(400, { error: 'Page must be between 1 and 500.' });
   const routes = { popular: '/movie/popular', trending: '/trending/movie/week', search: '/search/movie', genres: '/genre/movie/list', discover: '/discover/movie' };
   const movieActions = ['details', 'recommendations', 'similar'];
-  if (!movieActions.includes(action) && !Object.hasOwn(routes, action)) return reply(400, { error: 'Unsupported catalog action.' });
-  if (movieActions.includes(action) && (!/^[1-9]\d{0,9}$/.test(id))) return reply(400, { error: 'Invalid movie ID.' });
+  const personActions = ['person', 'personCredits'];
+  if (!movieActions.includes(action) && !personActions.includes(action) && !Object.hasOwn(routes, action)) return reply(400, { error: 'Unsupported catalog action.' });
+  if ((movieActions.includes(action) || personActions.includes(action)) && (!/^[1-9]\d{0,9}$/.test(id))) return reply(400, { error: 'Invalid TMDB ID.' });
   if (action === 'search' && (!query.trim() || query.length > 150)) return reply(400, { error: 'Search must contain 1–150 characters.' });
   const genreIds = new Set([28,12,16,35,80,99,18,10751,14,36,27,10402,9648,10749,878,10770,53,10752,37]);
   if (genre !== '' && (!/^\d+$/.test(genre) || !genreIds.has(Number(genre)))) return reply(400, { error: 'Invalid movie genre.' });
@@ -22,8 +23,9 @@ exports.handler = async event => {
   const useDiscover = action === 'discover' || (action === 'popular' && Boolean(genre || sort || year_from || year_to));
   const token = process.env.TMDB_READ_TOKEN;
   if (!token || token === 'replace_with_your_read_access_token') return reply(503, { error: 'Catalog not configured. Set TMDB_READ_TOKEN in your local .env or Netlify environment variables, then restart or redeploy. See README.' });
-  const url = new URL(`https://api.themoviedb.org/3${movieActions.includes(action) ? `/movie/${id}${action === 'details' ? '' : '/' + action}` : useDiscover ? '/discover/movie' : routes[action]}`);
+  const url = new URL(`https://api.themoviedb.org/3${personActions.includes(action) ? `/person/${id}${action === 'personCredits' ? '/movie_credits' : ''}` : movieActions.includes(action) ? `/movie/${id}${action === 'details' ? '' : '/' + action}` : useDiscover ? '/discover/movie' : routes[action]}`);
   url.searchParams.set('language', 'en-US');
+  if (action === 'details') url.searchParams.set('append_to_response', 'credits');
   if (['popular', 'trending', 'search', 'discover', 'recommendations', 'similar'].includes(action)) url.searchParams.set('page', page);
   if (useDiscover) {
     if (genre) url.searchParams.set('with_genres', genre);
@@ -41,7 +43,7 @@ exports.handler = async event => {
     if (!response.ok) {
       if (response.status === 429) return reply(429, { error: 'TMDB is busy. Please try again shortly.' }, { 'Retry-After': '10' });
       if ([401, 403].includes(response.status)) return reply(502, { error: 'TMDB authentication failed. Check the server token configuration.' });
-      if (response.status === 404) return reply(404, { error: 'Movie not found.' });
+      if (response.status === 404) return reply(404, { error: 'Movie or person not found.' });
       return reply(502, { error: 'TMDB is temporarily unavailable. Please try again.' });
     }
     const data = await response.json();
